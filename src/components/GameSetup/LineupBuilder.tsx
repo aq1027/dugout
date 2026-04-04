@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react';
 import type { Player } from '../../models/player';
 import type { LineupSlot } from '../../models/lineup';
 import type { PositionNumber } from '../../models/common';
@@ -9,88 +10,126 @@ interface LineupBuilderProps {
   lineup: LineupSlot[];
   onChange: (lineup: LineupSlot[]) => void;
   useDH: boolean;
+  playersPerSide: number;
 }
 
-export function LineupBuilder({ label, players, lineup, onChange, useDH }: LineupBuilderProps) {
+/** A slot that may or may not be filled */
+interface SlotState {
+  playerId: string | null;
+  position: PositionNumber | null;
+}
+
+function buildSlots(lineup: LineupSlot[], slotCount: number): SlotState[] {
+  return Array.from({ length: slotCount }, (_, i) => {
+    if (i < lineup.length) {
+      return { playerId: lineup[i].playerId, position: lineup[i].position };
+    }
+    return { playerId: null, position: null };
+  });
+}
+
+export function LineupBuilder({ label, players, lineup, onChange, useDH, playersPerSide }: LineupBuilderProps) {
+  const slotCount = useDH ? playersPerSide + 1 : playersPerSide;
+
   const availablePositions: PositionNumber[] = useDH
     ? [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
     : [1, 2, 3, 4, 5, 6, 7, 8, 9];
 
-  // Auto-populate lineup from players if empty
-  if (lineup.length === 0 && players.length > 0) {
-    const initial: LineupSlot[] = players.map((p, i) => ({
-      playerId: p.id,
-      position: p.positions[0] ?? ((i % 9) + 1) as PositionNumber,
-    }));
-    // Trigger the parent immediately
-    setTimeout(() => onChange(initial), 0);
-    return null;
+  // Internal slot state — preserves empty gaps
+  const [slots, setSlots] = useState<SlotState[]>(() => buildSlots(lineup, slotCount));
+
+  // Re-sync when team or DH changes (different players list = different team selected)
+  useEffect(() => {
+    setSlots(buildSlots(lineup, slotCount));
+  }, [players, slotCount]);
+
+  // Players already assigned to a slot
+  const assignedPlayerIds = new Set(slots.filter(s => s.playerId).map(s => s.playerId!));
+
+  // Positions already used
+  const usedPositions = new Map<PositionNumber, number>();
+  for (const s of slots) {
+    if (s.position) {
+      usedPositions.set(s.position, (usedPositions.get(s.position) ?? 0) + 1);
+    }
   }
+  const duplicatePositions = new Set(
+    [...usedPositions.entries()]
+      .filter(([, count]) => count > 1)
+      .map(([pos]) => pos)
+  );
+
+  // Emit only filled slots to parent in batting-order sequence
+  const emitChange = (newSlots: SlotState[]) => {
+    setSlots(newSlots);
+    const filled: LineupSlot[] = newSlots
+      .filter((s): s is { playerId: string; position: PositionNumber } => s.playerId !== null && s.position !== null);
+    onChange(filled);
+  };
+
+  const setPlayer = (index: number, playerId: string | null) => {
+    const next = [...slots];
+    if (playerId) {
+      const player = players.find(p => p.id === playerId);
+      const defaultPos = player?.positions[0] ?? 1;
+      next[index] = { playerId, position: defaultPos as PositionNumber };
+    } else {
+      next[index] = { playerId: null, position: null };
+    }
+    emitChange(next);
+  };
+
+  const setPosition = (index: number, pos: PositionNumber) => {
+    const next = [...slots];
+    next[index] = { ...next[index], position: pos };
+    emitChange(next);
+  };
 
   const moveUp = (index: number) => {
     if (index === 0) return;
-    const next = [...lineup];
+    const next = [...slots];
     [next[index - 1], next[index]] = [next[index], next[index - 1]];
-    onChange(next);
+    emitChange(next);
   };
 
   const moveDown = (index: number) => {
-    if (index === lineup.length - 1) return;
-    const next = [...lineup];
+    if (index >= slots.length - 1) return;
+    const next = [...slots];
     [next[index], next[index + 1]] = [next[index + 1], next[index]];
-    onChange(next);
+    emitChange(next);
   };
 
-  const changePosition = (index: number, pos: PositionNumber) => {
-    const next = [...lineup];
-    next[index] = { ...next[index], position: pos };
-    onChange(next);
+  const clearSlot = (index: number) => {
+    const next = [...slots];
+    next[index] = { playerId: null, position: null };
+    emitChange(next);
   };
 
-  const getPlayerName = (playerId: string) => {
+  const getPlayerLabel = (playerId: string) => {
     const p = players.find(pl => pl.id === playerId);
-    return p ? `${p.firstName} ${p.lastName}` : 'Unknown';
+    if (!p) return 'Unknown';
+    const num = p.number != null ? `#${p.number} ` : '';
+    return `${num}${p.firstName} ${p.lastName}`;
   };
 
-  const getPlayerNumber = (playerId: string) => {
-    const p = players.find(pl => pl.id === playerId);
-    return p?.number;
-  };
-
-  // Check for duplicate positions
-  const positionCounts = new Map<PositionNumber, number>();
-  for (const slot of lineup) {
-    positionCounts.set(slot.position, (positionCounts.get(slot.position) ?? 0) + 1);
-  }
-  const duplicatePositions = new Set(
-    [...positionCounts.entries()].filter(([pos, count]) => count > 1 && pos !== 10).map(([pos]) => pos)
-  );
+  const filledCount = slots.filter(s => s.playerId).length;
 
   return (
     <div className="team-section">
-      <span className="section-label">{label} — Batting Order</span>
+      <span className="section-label">{label} — Batting Order ({filledCount}/{slotCount})</span>
 
-      {lineup.length === 0 ? (
-        <p style={{ color: 'var(--color-text-muted)', fontSize: 14 }}>
-          Add players to the roster first.
-        </p>
-      ) : (
-        <>
-          <div className="lineup-list">
-            {lineup.map((slot, i) => (
-              <div key={slot.playerId} className="lineup-slot">
-                <span className="slot-name">
-                  {getPlayerNumber(slot.playerId) !== undefined && (
-                    <span style={{ color: 'var(--color-primary)', marginRight: 6 }}>
-                      #{getPlayerNumber(slot.playerId)}
-                    </span>
-                  )}
-                  {getPlayerName(slot.playerId)}
-                </span>
+      <div className="lineup-list">
+        {slots.map((slot, i) => (
+          <div key={i} className={`lineup-slot${slot.playerId ? '' : ' empty-slot'}`}>
+            <span className="slot-number">{i + 1}</span>
+
+            {slot.playerId ? (
+              <>
+                <span className="slot-name">{getPlayerLabel(slot.playerId)}</span>
                 <select
-                  value={slot.position}
-                  onChange={e => changePosition(i, parseInt(e.target.value) as PositionNumber)}
-                  style={duplicatePositions.has(slot.position) ? { borderColor: 'var(--color-warning)' } : {}}
+                  value={slot.position ?? ''}
+                  onChange={e => setPosition(i, parseInt(e.target.value) as PositionNumber)}
+                  style={slot.position && duplicatePositions.has(slot.position) ? { borderColor: 'var(--color-warning)' } : {}}
                 >
                   {availablePositions.map(pos => (
                     <option key={pos} value={pos}>{POSITION_LABELS[pos]}</option>
@@ -98,18 +137,41 @@ export function LineupBuilder({ label, players, lineup, onChange, useDH }: Lineu
                 </select>
                 <div className="move-btns">
                   <button type="button" onClick={() => moveUp(i)} disabled={i === 0}>▲</button>
-                  <button type="button" onClick={() => moveDown(i)} disabled={i === lineup.length - 1}>▼</button>
+                  <button type="button" onClick={() => moveDown(i)} disabled={i === slots.length - 1}>▼</button>
                 </div>
-              </div>
-            ))}
+                <button
+                  type="button"
+                  onClick={() => clearSlot(i)}
+                  className="clear-slot-btn"
+                  title="Remove from lineup"
+                >
+                  ×
+                </button>
+              </>
+            ) : (
+              <select
+                className="player-picker"
+                value=""
+                onChange={e => setPlayer(i, e.target.value || null)}
+              >
+                <option value="">— Select player —</option>
+                {players
+                  .filter(p => !assignedPlayerIds.has(p.id))
+                  .map(p => (
+                    <option key={p.id} value={p.id}>
+                      {p.number != null ? `#${p.number} ` : ''}{p.firstName} {p.lastName} ({p.positions.map(pos => POSITION_LABELS[pos]).join('/')})
+                    </option>
+                  ))}
+              </select>
+            )}
           </div>
+        ))}
+      </div>
 
-          {duplicatePositions.size > 0 && (
-            <div className="validation-msg">
-              ⚠ Duplicate positions: {[...duplicatePositions].map(p => POSITION_LABELS[p]).join(', ')}
-            </div>
-          )}
-        </>
+      {duplicatePositions.size > 0 && (
+        <div className="validation-msg">
+          ⚠ Duplicate positions: {[...duplicatePositions].map(p => POSITION_LABELS[p]).join(', ')}
+        </div>
       )}
     </div>
   );

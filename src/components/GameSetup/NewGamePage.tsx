@@ -169,6 +169,7 @@ export function NewGamePage() {
             lineup={away.lineup}
             onChange={lineup => setAway(prev => ({ ...prev, lineup }))}
             useDH={rules.useDH}
+            playersPerSide={rules.playersPerSide}
           />
           <LineupBuilder
             label={home.name || 'Home'}
@@ -176,6 +177,7 @@ export function NewGamePage() {
             lineup={home.lineup}
             onChange={lineup => setHome(prev => ({ ...prev, lineup }))}
             useDH={rules.useDH}
+            playersPerSide={rules.playersPerSide}
           />
         </>
       )}
