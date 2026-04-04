@@ -12,6 +12,7 @@ import { LineScore } from '../components/Scoring/LineScore'
 import { AtBatPanel } from '../components/Scoring/AtBatPanel'
 import { BetweenABPanel } from '../components/Scoring/BetweenABPanel'
 import { UndoButton, ConfirmDialog } from '../components/Scoring/UndoButton'
+import { PositionChangePanel } from '../components/Scoring/PositionChangePanel'
 import '../components/Scoring/Scoring.css'
 
 export function GamePage() {
@@ -90,6 +91,12 @@ export function GamePage() {
     setConfirmAction(null)
     navigate('/games')
   }, [game, navigate])
+
+  // Position change (defensive swap)
+  const handlePositionChange = useCallback(async (updatedGame: Game) => {
+    await db.games.put(updatedGame)
+    setGame(updatedGame)
+  }, [])
 
   // Resume a suspended game
   const handleResumeGame = useCallback(async () => {
@@ -176,6 +183,14 @@ export function GamePage() {
         </div>
       ) : (
         <>
+          {/* Defensive position changes */}
+          <PositionChangePanel
+            game={game}
+            state={state}
+            players={players}
+            onPositionChange={handlePositionChange}
+          />
+
           {/* Between-AB events (SB, CS, WP, PB, Balk) */}
           <BetweenABPanel
             state={state}

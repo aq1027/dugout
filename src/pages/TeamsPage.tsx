@@ -147,18 +147,25 @@ export function TeamsPage() {
 
         <p>Roster · {players.length} players</p>
 
-        <div className="roster-list" style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+        <div className="roster-list" style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
+          {/* Column headers */}
+          <div style={{ display: 'grid', gridTemplateColumns: '48px 1fr 1fr 56px 28px', gap: 6, padding: '6px 10px', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--color-text-muted)', borderBottom: '1px solid var(--color-border)' }}>
+            <span>No.</span>
+            <span>First</span>
+            <span>Last</span>
+            <span>Pos.</span>
+            <span></span>
+          </div>
           {players.map(p => (
-            <div key={p.id} className="game-list-item">
-              <div>
-                <span style={{ color: 'var(--color-primary)', fontWeight: 700, marginRight: 8 }}>
-                  #{p.number ?? '—'}
-                </span>
-                {p.firstName} {p.lastName}
-                <span style={{ color: 'var(--color-text-muted)', marginLeft: 8, fontSize: 13 }}>
-                  {p.positions.map(pos => POSITION_LABELS[pos]).join('/')}
-                </span>
-              </div>
+            <div key={p.id} style={{ display: 'grid', gridTemplateColumns: '48px 1fr 1fr 56px 28px', gap: 6, alignItems: 'center', padding: '8px 10px', borderBottom: '1px solid var(--color-border)' }}>
+              <span style={{ color: 'var(--color-primary)', fontWeight: 700, fontSize: 14 }}>
+                {p.number ?? '—'}
+              </span>
+              <span style={{ fontSize: 14 }}>{p.firstName}</span>
+              <span style={{ fontSize: 14 }}>{p.lastName}</span>
+              <span style={{ color: 'var(--color-text-muted)', fontSize: 13 }}>
+                {p.positions.map(pos => POSITION_LABELS[pos]).join('/')}
+              </span>
               <button
                 onClick={() => removePlayer(p.id)}
                 style={{ minHeight: 28, minWidth: 28, padding: 0, color: 'var(--color-error)', background: 'none' }}
@@ -169,7 +176,8 @@ export function TeamsPage() {
           ))}
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '56px 1fr 72px 36px', gap: 6, alignItems: 'center' }}>
+        {/* Add player form — separate fields */}
+        <div style={{ display: 'grid', gridTemplateColumns: '48px 1fr 1fr 56px 36px', gap: 6, alignItems: 'center' }}>
           <input
             type="text"
             placeholder="#"
@@ -181,13 +189,17 @@ export function TeamsPage() {
           />
           <input
             type="text"
-            placeholder="First Last"
-            value={newFirst ? `${newFirst}${newLast ? ' ' + newLast : ''}` : ''}
-            onChange={e => {
-              const parts = e.target.value.split(' ')
-              setNewFirst(parts[0] ?? '')
-              setNewLast(parts.slice(1).join(' '))
-            }}
+            placeholder="First"
+            value={newFirst}
+            onChange={e => setNewFirst(e.target.value)}
+            style={{ padding: '8px', borderRadius: 'var(--radius)', border: '1px solid var(--color-border)', background: 'var(--color-bg)', color: 'var(--color-text)', fontSize: 14, minHeight: 'var(--tap-target)' }}
+          />
+          <input
+            type="text"
+            placeholder="Last"
+            value={newLast}
+            onChange={e => setNewLast(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && addPlayer()}
             style={{ padding: '8px', borderRadius: 'var(--radius)', border: '1px solid var(--color-border)', background: 'var(--color-bg)', color: 'var(--color-text)', fontSize: 14, minHeight: 'var(--tap-target)' }}
           />
           <select
