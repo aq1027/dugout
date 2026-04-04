@@ -1,0 +1,134 @@
+.app-layout {
+  display: flex;
+  flex-direction: column;
+  min-height: 100dvh;
+}
+
+.app-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  background-color: var(--color-surface);
+  border-bottom: 1px solid var(--color-border);
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+
+.app-header h1 {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--color-primary);
+  letter-spacing: -0.5px;
+}
+
+.app-header nav {
+  display: flex;
+  gap: 8px;
+}
+
+.app-header nav a {
+  padding: 6px 12px;
+  border-radius: var(--radius);
+  font-size: 14px;
+  color: var(--color-text-muted);
+  transition: color 0.15s, background-color 0.15s;
+}
+
+.app-header nav a:hover,
+.app-header nav a.active {
+  color: var(--color-text);
+  background-color: var(--color-surface-hover);
+}
+
+.app-main {
+  flex: 1;
+  padding: 16px;
+  max-width: 640px;
+  width: 100%;
+  margin: 0 auto;
+}
+
+/* Home page */
+.home {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding-top: 24px;
+}
+
+.home h2 {
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+.home p {
+  color: var(--color-text-muted);
+  font-size: 15px;
+}
+
+.action-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.action-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 20px 16px;
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  text-align: center;
+  font-size: 14px;
+  color: var(--color-text);
+  text-decoration: none;
+  transition: background-color 0.15s, border-color 0.15s;
+}
+
+.action-card:hover {
+  background-color: var(--color-surface-hover);
+  border-color: var(--color-primary-dim);
+}
+
+.action-card .icon {
+  font-size: 28px;
+}
+
+.game-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.game-list-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  text-decoration: none;
+  color: var(--color-text);
+  transition: background-color 0.15s;
+}
+
+.game-list-item:hover {
+  background-color: var(--color-surface-hover);
+}
+
+.game-list-item .teams {
+  font-weight: 600;
+}
+
+.game-list-item .meta {
+  font-size: 13px;
+  color: var(--color-text-muted);
+}

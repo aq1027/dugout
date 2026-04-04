@@ -1,0 +1,29 @@
+import { Routes, Route, Link, NavLink } from 'react-router-dom'
+import './App.css'
+import { HomePage } from './pages/HomePage'
+import { GamesPage } from './pages/GamesPage'
+import { TeamsPage } from './pages/TeamsPage'
+
+function App() {
+  return (
+    <div className="app-layout">
+      <header className="app-header">
+        <Link to="/"><h1>⚾ Dugout</h1></Link>
+        <nav>
+          <NavLink to="/" end>Home</NavLink>
+          <NavLink to="/games">Games</NavLink>
+          <NavLink to="/teams">Teams</NavLink>
+        </nav>
+      </header>
+      <main className="app-main">
+        <Routes>
+          <Route path="/" element={<HomePage />} />
+          <Route path="/games" element={<GamesPage />} />
+          <Route path="/teams" element={<TeamsPage />} />
+        </Routes>
+      </main>
+    </div>
+  )
+}
+
+export default App

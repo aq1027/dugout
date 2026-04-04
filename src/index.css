@@ -1,0 +1,89 @@
+:root {
+  --color-bg: #0f1f17;
+  --color-surface: #1a3a2a;
+  --color-surface-hover: #224a35;
+  --color-primary: #4ade80;
+  --color-primary-dim: #22c55e;
+  --color-text: #e8f5e9;
+  --color-text-muted: #a5d6a7;
+  --color-border: #2d5a3f;
+  --color-error: #ef4444;
+  --color-warning: #f59e0b;
+  --radius: 8px;
+  --tap-target: 44px;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  font-size: 16px;
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background-color: var(--color-bg);
+  color: var(--color-text);
+  line-height: 1.5;
+  min-height: 100dvh;
+  -webkit-font-smoothing: antialiased;
+}
+
+#root {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+}
+
+a {
+  color: var(--color-primary);
+  text-decoration: none;
+}
+
+button {
+  font-family: inherit;
+  font-size: inherit;
+  cursor: pointer;
+  border: none;
+  border-radius: var(--radius);
+  min-height: var(--tap-target);
+  min-width: var(--tap-target);
+  padding: 8px 16px;
+  background-color: var(--color-surface);
+  color: var(--color-text);
+  transition: background-color 0.15s;
+}
+
+button:hover {
+  background-color: var(--color-surface-hover);
+}
+
+button:active {
+  opacity: 0.9;
+}
+
+button.primary {
+  background-color: var(--color-primary-dim);
+  color: #0f1f17;
+  font-weight: 600;
+}
+
+button.primary:hover {
+  background-color: var(--color-primary);
+}
+
+/* High-contrast / sunlight mode */
+@media (prefers-contrast: more) {
+  :root {
+    --color-bg: #000;
+    --color-surface: #1a1a1a;
+    --color-text: #fff;
+    --color-primary: #00ff66;
+  }
+}
