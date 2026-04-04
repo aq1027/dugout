@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import type { Player } from '../../models/player';
 import type { LineupSlot } from '../../models/lineup';
 import type { PositionNumber } from '../../models/common';
@@ -14,167 +14,167 @@ interface LineupBuilderProps {
   everyoneBats: boolean;
 }
 
-/** A batting slot that may or may not be filled */
 interface SlotState {
   playerId: string | null;
   position: PositionNumber | null;
 }
 
-/** Defensive positions for non-pitcher fielders */
 const FIELD_POSITIONS: PositionNumber[] = [2, 3, 4, 5, 6, 7, 8, 9];
 
 export function LineupBuilder({
   label, players, lineup, onChange, useDH, playersPerSide, everyoneBats,
 }: LineupBuilderProps) {
-  // Pitcher state — separate from batting order
+  // Pitcher — separate from batting order
   const [pitcherId, setPitcherId] = useState<string | null>(() => {
-    const pitcherSlot = lineup.find(s => s.position === 1);
-    return pitcherSlot?.playerId ?? null;
+    const slot = lineup.find(s => s.position === 1);
+    return slot?.playerId ?? null;
   });
 
-  // Two-way: pitcher also bats as DH (only relevant when useDH)
   const [twoWay, setTwoWay] = useState<boolean>(() => {
     if (!useDH) return false;
-    // If pitcher is also in the lineup as DH, that's two-way
-    const pitcherSlot = lineup.find(s => s.position === 1);
-    if (!pitcherSlot) return false;
-    return lineup.some(s => s.playerId === pitcherSlot.playerId && s.position === 10);
+    const pSlot = lineup.find(s => s.position === 1);
+    if (!pSlot) return false;
+    return lineup.some(s => s.playerId === pSlot.playerId && s.position === 10);
   });
 
-  // Batting order slots (excludes pitcher unless pitcher bats / two-way)
   const battingSlotCount = everyoneBats ? players.length : playersPerSide;
   const [slots, setSlots] = useState<SlotState[]>(() => buildSlots(lineup, battingSlotCount, pitcherId));
 
-  // Re-sync when team, slot count, or DH changes
+  // ─── Drag-and-drop state ────────────────────────────────
+  const [dragIdx, setDragIdx] = useState<number | null>(null);
+  const [overIdx, setOverIdx] = useState<number | null>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+  const touchSrc = useRef<number | null>(null);
+
+  // Re-sync on team / rule changes
   useEffect(() => {
-    // Reconstruct from lineup prop
-    const pitcherInLineup = lineup.find(s => s.position === 1);
-    const newPitcherId = pitcherInLineup?.playerId ?? null;
-    setPitcherId(newPitcherId);
-    setSlots(buildSlots(lineup, everyoneBats ? players.length : playersPerSide, newPitcherId));
+    const pSlot = lineup.find(s => s.position === 1);
+    const newPid = pSlot?.playerId ?? null;
+    setPitcherId(newPid);
+    setSlots(buildSlots(lineup, everyoneBats ? players.length : playersPerSide, newPid));
     if (!useDH) setTwoWay(false);
   }, [players, playersPerSide, useDH, everyoneBats]);
 
-  // All assigned player IDs (batting + pitcher)
+  // ─── Derived data ───────────────────────────────────────
   const assignedBattingIds = new Set(slots.filter(s => s.playerId).map(s => s.playerId!));
   const allAssignedIds = new Set(assignedBattingIds);
   if (pitcherId) allAssignedIds.add(pitcherId);
 
-  // Used positions (from batting slots)
-  const usedPositions = new Set<PositionNumber>();
+  // Count positions for duplicate detection
+  const posCounts = new Map<PositionNumber, number>();
   for (const s of slots) {
-    if (s.position) usedPositions.add(s.position);
+    if (s.position) posCounts.set(s.position, (posCounts.get(s.position) ?? 0) + 1);
   }
-  if (pitcherId) usedPositions.add(1); // pitcher position always taken
+  const dupPositions = new Set(
+    [...posCounts.entries()].filter(([, c]) => c > 1).map(([p]) => p),
+  );
 
-  // Available players for the batting order (exclude pitcher unless two-way)
   const availableForBatting = players.filter(p => {
     if (allAssignedIds.has(p.id)) return false;
-    // In DH mode without two-way, pitcher can't bat
     if (useDH && !twoWay && p.id === pitcherId) return false;
     return true;
   });
 
-  // Positions a batter can be assigned
-  const batterPositions = (): PositionNumber[] => {
-    if (useDH) {
-      // Fielders (C-RF) + DH; no P in batting order
-      return [...FIELD_POSITIONS, 10];
-    }
-    // No DH: fielders only (P is separate but bats in order)
-    return [...FIELD_POSITIONS];
-  };
+  // Position options for a slot — only positions not yet taken (except own)
+  const posOptions = useCallback((currentPos: PositionNumber | null): PositionNumber[] => {
+    const base: PositionNumber[] = useDH ? [...FIELD_POSITIONS, 10] : [...FIELD_POSITIONS];
+    return base.filter(pos => pos === currentPos || !posCounts.has(pos) || posCounts.get(pos) === 0);
+  }, [useDH, posCounts]);
 
-  // ─── Emit to parent ─────────────────────────────────────
-  const emit = (newSlots: SlotState[], newPitcherId: string | null, newTwoWay: boolean) => {
+  // ─── Emit ───────────────────────────────────────────────
+  const emit = useCallback((newSlots: SlotState[], pid: string | null, _tw: boolean) => {
     setSlots(newSlots);
     const filled: LineupSlot[] = [];
-
-    // Add batting order slots (filled ones only)
     for (const s of newSlots) {
-      if (s.playerId && s.position) {
-        filled.push({ playerId: s.playerId, position: s.position });
-      }
+      if (s.playerId && s.position) filled.push({ playerId: s.playerId, position: s.position });
     }
-
-    // Add pitcher to lineup
-    if (newPitcherId) {
-      if (!useDH) {
-        // No DH: pitcher bats — add as P at the end of the filled lineup
-        // (they're in the batting order but their position is P)
-        filled.push({ playerId: newPitcherId, position: 1 });
-      } else if (newTwoWay) {
-        // Two-way: pitcher bats as DH — already in batting slots as DH
-        // Also need the P position in the lineup for fielding reference
-        filled.push({ playerId: newPitcherId, position: 1 });
-      } else {
-        // Standard DH: pitcher fields but doesn't bat — still store for fielding
-        filled.push({ playerId: newPitcherId, position: 1 });
-      }
-    }
-
+    if (pid) filled.push({ playerId: pid, position: 1 });
     onChange(filled);
+  }, [onChange]);
+
+  // ─── Drag handlers (desktop) ────────────────────────────
+  const onDragStart = (i: number) => setDragIdx(i);
+  const onDragOver = (e: React.DragEvent, i: number) => { e.preventDefault(); setOverIdx(i); };
+  const onDrop = (target: number) => {
+    if (dragIdx !== null && dragIdx !== target) {
+      const next = [...slots];
+      const [moved] = next.splice(dragIdx, 1);
+      next.splice(target, 0, moved);
+      emit(next, pitcherId, twoWay);
+    }
+    setDragIdx(null);
+    setOverIdx(null);
+  };
+  const onDragEnd = () => { setDragIdx(null); setOverIdx(null); };
+
+  // ─── Touch drag (mobile) ────────────────────────────────
+  const onTouchStart = (i: number) => { touchSrc.current = i; setDragIdx(i); };
+
+  const onTouchMove = (e: React.TouchEvent) => {
+    if (touchSrc.current === null || !listRef.current) return;
+    const touch = e.touches[0];
+    const slotEls = listRef.current.querySelectorAll<HTMLElement>('.lineup-slot');
+    for (let j = 0; j < slotEls.length; j++) {
+      const rect = slotEls[j].getBoundingClientRect();
+      if (touch.clientY >= rect.top && touch.clientY <= rect.bottom) {
+        setOverIdx(j);
+        break;
+      }
+    }
   };
 
-  // ─── Handlers ────────────────────────────────────────────
+  const onTouchEnd = () => {
+    if (touchSrc.current !== null && overIdx !== null && touchSrc.current !== overIdx) {
+      const next = [...slots];
+      const [moved] = next.splice(touchSrc.current, 1);
+      next.splice(overIdx, 0, moved);
+      emit(next, pitcherId, twoWay);
+    }
+    touchSrc.current = null;
+    setDragIdx(null);
+    setOverIdx(null);
+  };
+
+  // ─── Pitcher handlers ──────────────────────────────────
   const handlePitcherChange = (id: string | null) => {
-    const oldPitcherId = pitcherId;
+    const oldPid = pitcherId;
     setPitcherId(id);
-
     let next = [...slots];
-
-    // If two-way was on and pitcher changed, clear the old two-way slot
-    if (twoWay && oldPitcherId) {
-      next = next.map(s =>
-        s.playerId === oldPitcherId && s.position === 10
-          ? { playerId: null, position: null }
-          : s,
-      );
+    if (twoWay && oldPid) {
+      next = next.map(s => s.playerId === oldPid && s.position === 10 ? { playerId: null, position: null } : s);
     }
-
-    // If two-way is on, insert new pitcher into a batting slot as DH
     if (twoWay && id) {
-      const emptyIdx = next.findIndex(s => !s.playerId);
-      if (emptyIdx >= 0) {
-        next[emptyIdx] = { playerId: id, position: 10 };
-      }
+      const ei = next.findIndex(s => !s.playerId);
+      if (ei >= 0) next[ei] = { playerId: id, position: 10 };
     }
-
     emit(next, id, twoWay);
   };
 
   const handleTwoWayToggle = (checked: boolean) => {
     setTwoWay(checked);
     let next = [...slots];
-
     if (checked && pitcherId) {
-      // Add pitcher as DH in first empty slot
-      const emptyIdx = next.findIndex(s => !s.playerId);
-      if (emptyIdx >= 0) {
-        next[emptyIdx] = { playerId: pitcherId, position: 10 };
-      }
+      const ei = next.findIndex(s => !s.playerId);
+      if (ei >= 0) next[ei] = { playerId: pitcherId, position: 10 };
     } else if (!checked && pitcherId) {
-      // Remove pitcher from batting order
-      next = next.map(s =>
-        s.playerId === pitcherId ? { playerId: null, position: null } : s,
-      );
+      next = next.map(s => s.playerId === pitcherId ? { playerId: null, position: null } : s);
     }
-
     emit(next, pitcherId, checked);
   };
 
-  const setPlayer = (index: number, playerId: string | null) => {
+  // ─── Slot handlers ─────────────────────────────────────
+  const pickPlayer = (index: number, playerId: string | null) => {
     const next = [...slots];
     if (playerId) {
-      // Default position: first applicable position from player's roster
       const player = players.find(p => p.id === playerId);
-      let defaultPos: PositionNumber = useDH ? 10 : 2;
+      const base: PositionNumber[] = useDH ? [...FIELD_POSITIONS, 10] : [...FIELD_POSITIONS];
+      // Pick first open position that matches player's roster, else first open
+      let pos: PositionNumber = base.find(p => !posCounts.has(p)) ?? base[0];
       if (player) {
-        const bPositions = batterPositions();
-        const match = player.positions.find(p => bPositions.includes(p as PositionNumber));
-        if (match) defaultPos = match as PositionNumber;
+        const match = player.positions.find(p => base.includes(p as PositionNumber) && !posCounts.has(p as PositionNumber));
+        if (match) pos = match as PositionNumber;
       }
-      next[index] = { playerId, position: defaultPos };
+      next[index] = { playerId, position: pos };
     } else {
       next[index] = { playerId: null, position: null };
     }
@@ -187,41 +187,25 @@ export function LineupBuilder({
     emit(next, pitcherId, twoWay);
   };
 
-  const moveUp = (index: number) => {
-    if (index === 0) return;
-    const next = [...slots];
-    [next[index - 1], next[index]] = [next[index], next[index - 1]];
-    emit(next, pitcherId, twoWay);
-  };
-
-  const moveDown = (index: number) => {
-    if (index >= slots.length - 1) return;
-    const next = [...slots];
-    [next[index], next[index + 1]] = [next[index + 1], next[index]];
-    emit(next, pitcherId, twoWay);
-  };
-
   const clearSlot = (index: number) => {
     const next = [...slots];
     next[index] = { playerId: null, position: null };
     emit(next, pitcherId, twoWay);
   };
 
-  const getPlayerLabel = (playerId: string) => {
-    const p = players.find(pl => pl.id === playerId);
+  const playerLabel = (id: string) => {
+    const p = players.find(pl => pl.id === id);
     if (!p) return 'Unknown';
-    const num = p.number != null ? `#${p.number} ` : '';
-    return `${num}${p.firstName} ${p.lastName}`;
+    return `${p.number != null ? '#' + p.number + ' ' : ''}${p.firstName} ${p.lastName}`;
   };
 
   const filledCount = slots.filter(s => s.playerId).length;
-  const bPositions = batterPositions();
 
   return (
     <div className="team-section">
       <span className="section-label">{label}</span>
 
-      {/* ── Starting Pitcher ─────────────── */}
+      {/* ── Starting Pitcher ─────── */}
       <div className="pitcher-section">
         <label className="pitcher-label">Starting Pitcher</label>
         <select
@@ -231,7 +215,7 @@ export function LineupBuilder({
         >
           <option value="">— Select pitcher —</option>
           {players
-            .filter(p => p.id === pitcherId || !assignedBattingIds.has(p.id) || (twoWay && p.id === pitcherId))
+            .filter(p => p.id === pitcherId || !assignedBattingIds.has(p.id))
             .map(p => (
               <option key={p.id} value={p.id}>
                 {p.number != null ? `#${p.number} ` : ''}{p.firstName} {p.lastName}
@@ -240,11 +224,7 @@ export function LineupBuilder({
         </select>
         {useDH && pitcherId && (
           <label className="two-way-toggle">
-            <input
-              type="checkbox"
-              checked={twoWay}
-              onChange={e => handleTwoWayToggle(e.target.checked)}
-            />
+            <input type="checkbox" checked={twoWay} onChange={e => handleTwoWayToggle(e.target.checked)} />
             Pitcher also bats (two-way)
           </label>
         )}
@@ -253,70 +233,89 @@ export function LineupBuilder({
         )}
       </div>
 
-      {/* ── Batting Order ────────────────── */}
+      {/* ── Batting Order ────────── */}
       <div className="batting-header">
         <span>Batting Order ({filledCount}/{battingSlotCount})</span>
       </div>
 
-      <div className="lineup-list">
-        {slots.map((slot, i) => (
-          <div key={i} className={`lineup-slot${slot.playerId ? '' : ' empty-slot'}`}>
-            <span className="slot-number">{i + 1}</span>
+      <div className="lineup-list" ref={listRef}>
+        {slots.map((slot, i) => {
+          const isDragging = dragIdx === i;
+          const isOver = overIdx === i && dragIdx !== i;
+          return (
+            <div
+              key={i}
+              data-index={i}
+              className={
+                'lineup-slot'
+                + (slot.playerId ? '' : ' empty-slot')
+                + (isDragging ? ' dragging' : '')
+                + (isOver ? ' drag-over' : '')
+              }
+              draggable={!!slot.playerId}
+              onDragStart={() => onDragStart(i)}
+              onDragOver={e => onDragOver(e, i)}
+              onDrop={() => onDrop(i)}
+              onDragEnd={onDragEnd}
+            >
+              <span className="slot-number">{i + 1}</span>
 
-            {slot.playerId ? (
-              <>
-                <span className="slot-name">{getPlayerLabel(slot.playerId)}</span>
+              {slot.playerId ? (
+                <>
+                  <span
+                    className="drag-handle"
+                    title="Drag to reorder"
+                    onTouchStart={() => onTouchStart(i)}
+                    onTouchMove={onTouchMove}
+                    onTouchEnd={onTouchEnd}
+                  >☰</span>
+                  <span className="slot-name">{playerLabel(slot.playerId)}</span>
+                  <select
+                    value={slot.position ?? ''}
+                    onChange={e => setPosition(i, parseInt(e.target.value) as PositionNumber)}
+                    className={slot.position && dupPositions.has(slot.position) ? 'pos-error' : ''}
+                  >
+                    {posOptions(slot.position).map(pos => (
+                      <option key={pos} value={pos}>{POSITION_LABELS[pos]}</option>
+                    ))}
+                  </select>
+                  <button type="button" onClick={() => clearSlot(i)} className="clear-slot-btn" title="Remove">×</button>
+                </>
+              ) : (
                 <select
-                  value={slot.position ?? ''}
-                  onChange={e => setPosition(i, parseInt(e.target.value) as PositionNumber)}
+                  className="player-picker"
+                  value=""
+                  onChange={e => pickPlayer(i, e.target.value || null)}
                 >
-                  {bPositions.map(pos => (
-                    <option key={pos} value={pos}>{POSITION_LABELS[pos]}</option>
-                  ))}
+                  <option value="">— Select player —</option>
+                  {availableForBatting
+                    .filter(p => !assignedBattingIds.has(p.id))
+                    .map(p => (
+                      <option key={p.id} value={p.id}>
+                        {p.number != null ? `#${p.number} ` : ''}{p.firstName} {p.lastName}
+                        {' '}({p.positions.map(pos => POSITION_LABELS[pos as PositionNumber]).join('/')})
+                      </option>
+                    ))}
                 </select>
-                <div className="move-btns">
-                  <button type="button" onClick={() => moveUp(i)} disabled={i === 0}>▲</button>
-                  <button type="button" onClick={() => moveDown(i)} disabled={i === slots.length - 1}>▼</button>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => clearSlot(i)}
-                  className="clear-slot-btn"
-                  title="Remove from lineup"
-                >×</button>
-              </>
-            ) : (
-              <select
-                className="player-picker"
-                value=""
-                onChange={e => setPlayer(i, e.target.value || null)}
-              >
-                <option value="">— Select player —</option>
-                {availableForBatting
-                  .filter(p => !assignedBattingIds.has(p.id))
-                  .map(p => (
-                    <option key={p.id} value={p.id}>
-                      {p.number != null ? `#${p.number} ` : ''}{p.firstName} {p.lastName}
-                      {' '}({p.positions.map(pos => POSITION_LABELS[pos as PositionNumber]).join('/')})
-                    </option>
-                  ))}
-              </select>
-            )}
-          </div>
-        ))}
+              )}
+            </div>
+          );
+        })}
       </div>
+
+      {dupPositions.size > 0 && (
+        <div className="validation-msg">
+          ⚠ Duplicate positions: {[...dupPositions].map(p => POSITION_LABELS[p]).join(', ')}
+        </div>
+      )}
     </div>
   );
 }
 
-/** Build initial slot state from lineup, pulling pitcher out of the batting order */
 function buildSlots(lineup: LineupSlot[], count: number, pitcherId: string | null): SlotState[] {
-  // Filter out the pitcher's P-position entry from batting slots
-  const battingEntries = lineup.filter(s => !(s.position === 1 && s.playerId === pitcherId));
+  const batting = lineup.filter(s => !(s.position === 1 && s.playerId === pitcherId));
   return Array.from({ length: count }, (_, i) => {
-    if (i < battingEntries.length) {
-      return { playerId: battingEntries[i].playerId, position: battingEntries[i].position };
-    }
+    if (i < batting.length) return { playerId: batting[i].playerId, position: batting[i].position };
     return { playerId: null, position: null };
   });
 }
