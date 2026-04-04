@@ -1,0 +1,352 @@
+.setup-page {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding-top: 16px;
+}
+
+.setup-page h2 {
+  font-size: 24px;
+  font-weight: 700;
+}
+
+.setup-page h3 {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+/* Step indicator */
+.step-indicator {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+
+.step-dot {
+  width: 32px;
+  height: 4px;
+  border-radius: 2px;
+  background-color: var(--color-border);
+  transition: background-color 0.2s;
+}
+
+.step-dot.active {
+  background-color: var(--color-primary);
+}
+
+.step-dot.done {
+  background-color: var(--color-primary-dim);
+}
+
+/* Sport selector cards */
+.sport-options {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.sport-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 24px 16px;
+  background-color: var(--color-surface);
+  border: 2px solid var(--color-border);
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: border-color 0.15s, background-color 0.15s;
+}
+
+.sport-card:hover {
+  background-color: var(--color-surface-hover);
+}
+
+.sport-card.selected {
+  border-color: var(--color-primary);
+  background-color: var(--color-surface-hover);
+}
+
+.sport-card .sport-icon {
+  font-size: 36px;
+}
+
+.sport-card .sport-label {
+  font-weight: 600;
+  font-size: 16px;
+}
+
+.sport-card .sport-detail {
+  font-size: 13px;
+  color: var(--color-text-muted);
+}
+
+/* Rules config */
+.rules-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.rule-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 14px;
+  background-color: var(--color-surface);
+  border-radius: var(--radius);
+  border: 1px solid var(--color-border);
+}
+
+.rule-row label {
+  font-size: 14px;
+  color: var(--color-text);
+}
+
+.rule-row input[type="number"] {
+  width: 64px;
+  padding: 6px 8px;
+  border-radius: var(--radius);
+  border: 1px solid var(--color-border);
+  background-color: var(--color-bg);
+  color: var(--color-text);
+  font-size: 14px;
+  text-align: center;
+}
+
+.rule-row input[type="checkbox"] {
+  width: 20px;
+  height: 20px;
+  accent-color: var(--color-primary);
+}
+
+/* Team picker */
+.team-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+}
+
+.team-section .section-label {
+  font-size: 13px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--color-text-muted);
+}
+
+.team-picker-options {
+  display: flex;
+  gap: 8px;
+}
+
+.team-picker-options button {
+  flex: 1;
+  font-size: 14px;
+}
+
+/* Quick team form */
+.quick-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.quick-form input,
+.quick-form select {
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  border: 1px solid var(--color-border);
+  background-color: var(--color-bg);
+  color: var(--color-text);
+  font-size: 14px;
+  font-family: inherit;
+  min-height: var(--tap-target);
+}
+
+.quick-form input:focus,
+.quick-form select:focus {
+  outline: 2px solid var(--color-primary);
+  outline-offset: -1px;
+}
+
+/* Player roster list */
+.roster-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.roster-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background-color: var(--color-bg);
+  border-radius: var(--radius);
+  font-size: 14px;
+}
+
+.roster-item .player-number {
+  font-weight: 700;
+  color: var(--color-primary);
+  min-width: 28px;
+  text-align: center;
+}
+
+.roster-item .player-name {
+  flex: 1;
+}
+
+.roster-item .player-pos {
+  color: var(--color-text-muted);
+  font-size: 12px;
+}
+
+.roster-item .remove-btn {
+  min-height: 28px;
+  min-width: 28px;
+  padding: 0;
+  font-size: 16px;
+  color: var(--color-error);
+  background: none;
+}
+
+/* Add player row */
+.add-player-row {
+  display: grid;
+  grid-template-columns: 56px 1fr 72px 36px;
+  gap: 6px;
+  align-items: center;
+}
+
+.add-player-row input,
+.add-player-row select {
+  padding: 8px;
+  border-radius: var(--radius);
+  border: 1px solid var(--color-border);
+  background-color: var(--color-bg);
+  color: var(--color-text);
+  font-size: 14px;
+  font-family: inherit;
+  min-height: var(--tap-target);
+}
+
+.add-player-row button {
+  min-height: var(--tap-target);
+  padding: 0;
+  font-size: 20px;
+}
+
+/* Lineup builder */
+.lineup-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  counter-reset: lineup;
+}
+
+.lineup-slot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  counter-increment: lineup;
+  cursor: grab;
+  touch-action: none;
+}
+
+.lineup-slot::before {
+  content: counter(lineup);
+  font-weight: 700;
+  font-size: 14px;
+  color: var(--color-text-muted);
+  min-width: 20px;
+  text-align: center;
+}
+
+.lineup-slot .slot-name {
+  flex: 1;
+  font-size: 14px;
+}
+
+.lineup-slot select {
+  padding: 4px 6px;
+  border-radius: var(--radius);
+  border: 1px solid var(--color-border);
+  background-color: var(--color-bg);
+  color: var(--color-text);
+  font-size: 13px;
+  font-family: inherit;
+}
+
+.lineup-slot .move-btns {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.lineup-slot .move-btns button {
+  min-height: 24px;
+  min-width: 28px;
+  padding: 0;
+  font-size: 12px;
+  background: none;
+  color: var(--color-text-muted);
+}
+
+/* Confirmation summary */
+.confirm-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.confirm-card {
+  padding: 16px;
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+}
+
+.confirm-card h4 {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  margin-bottom: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.confirm-card .detail {
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+/* Navigation buttons */
+.setup-nav {
+  display: flex;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.setup-nav button {
+  flex: 1;
+}
+
+/* Validation message */
+.validation-msg {
+  font-size: 13px;
+  color: var(--color-warning);
+  padding: 8px 12px;
+  background-color: rgba(245, 158, 11, 0.1);
+  border-radius: var(--radius);
+}

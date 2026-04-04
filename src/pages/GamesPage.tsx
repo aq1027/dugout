@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { db } from '../db'
 import type { Game } from '../models/game'
 
@@ -14,23 +15,24 @@ export function GamesPage() {
       <h2>Games</h2>
       <p>Your scored games will appear here. Start a new game to begin scoring.</p>
 
-      <button className="primary" style={{ marginTop: 8 }}>
-        + New Game
-      </button>
+      <Link to="/game/new" className="action-card" style={{ display: 'inline-flex', flexDirection: 'row', gap: 8, padding: '12px 20px', alignSelf: 'flex-start' }}>
+        <span>🏟️</span> New Game
+      </Link>
 
       {games.length > 0 && (
         <div className="game-list">
           {games.map(game => (
-            <div key={game.id} className="game-list-item">
+            <Link key={game.id} to={`/game/${game.id}`} className="game-list-item">
               <div>
                 <div className="teams">
                   {game.awayTeamName} @ {game.homeTeamName}
                 </div>
                 <div className="meta">
                   {new Date(game.date).toLocaleDateString()} · {game.status}
+                  {game.sport === 'softball' ? ' · 🥎' : ' · ⚾'}
                 </div>
               </div>
-            </div>
+            </Link>
           ))}
         </div>
       )}

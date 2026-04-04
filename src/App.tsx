@@ -2,7 +2,9 @@ import { Routes, Route, Link, NavLink } from 'react-router-dom'
 import './App.css'
 import { HomePage } from './pages/HomePage'
 import { GamesPage } from './pages/GamesPage'
+import { GamePage } from './pages/GamePage'
 import { TeamsPage } from './pages/TeamsPage'
+import { NewGamePage } from './components/GameSetup/NewGamePage'
 
 function App() {
   return (
@@ -19,6 +21,8 @@ function App() {
         <Routes>
           <Route path="/" element={<HomePage />} />
           <Route path="/games" element={<GamesPage />} />
+          <Route path="/game/new" element={<NewGamePage />} />
+          <Route path="/game/:gameId" element={<GamePage />} />
           <Route path="/teams" element={<TeamsPage />} />
         </Routes>
       </main>

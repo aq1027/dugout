@@ -7,7 +7,7 @@ export function HomePage() {
       <p>Offline-first baseball &amp; softball scorekeeper. Score games play-by-play, track stats, and never lose a game record.</p>
 
       <div className="action-grid">
-        <Link to="/games" className="action-card">
+        <Link to="/game/new" className="action-card">
           <span className="icon">🏟️</span>
           New Game
         </Link>
