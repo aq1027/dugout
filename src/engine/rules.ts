@@ -11,6 +11,7 @@ export const RULE_PRESETS: Record<SportType, GameRules> = {
     mercyRule: null,
     mercyInning: null,
     extraInningAutoRunner: true, // MLB rule since 2020
+    everyoneBats: false,
   },
   softball: {
     innings: 7,
@@ -20,6 +21,7 @@ export const RULE_PRESETS: Record<SportType, GameRules> = {
     mercyRule: 12,
     mercyInning: 3,
     extraInningAutoRunner: true,
+    everyoneBats: false,
   },
 };
 

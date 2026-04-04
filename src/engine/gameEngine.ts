@@ -28,15 +28,16 @@ export function deriveGameState(game: Game): DerivedGameState {
   };
 
   for (const event of game.events) {
-    applyEvent(state, event, game.rules);
+    applyEvent(state, event, game);
   }
 
   return state;
 }
 
 /** Apply a single event to the mutable state */
-function applyEvent(state: DerivedGameState, event: PlayEvent, rules: GameRules): void {
+function applyEvent(state: DerivedGameState, event: PlayEvent, game: Game): void {
   if (state.isGameOver) return;
+  const rules = game.rules;
 
   // Ensure line score arrays are long enough
   while (state.awayLineScore.length < state.inning) state.awayLineScore.push(0);
@@ -77,9 +78,9 @@ function applyEvent(state: DerivedGameState, event: PlayEvent, rules: GameRules)
   if (isAtBatComplete(event)) {
     state.count = { balls: 0, strikes: 0 };
     if (isAwayBatting) {
-      state.awayBatterIndex = (state.awayBatterIndex + 1) % getBattingOrderSize(rules);
+      state.awayBatterIndex = (state.awayBatterIndex + 1) % getBattingOrderSize(rules, game.awayLineup.startingOrder.length);
     } else {
-      state.homeBatterIndex = (state.homeBatterIndex + 1) % getBattingOrderSize(rules);
+      state.homeBatterIndex = (state.homeBatterIndex + 1) % getBattingOrderSize(rules, game.homeLineup.startingOrder.length);
     }
   }
 
@@ -192,7 +193,8 @@ function applyRunnerMovements(bases: BaseState, event: PlayEvent): void {
   }
 }
 
-function getBattingOrderSize(rules: GameRules): number {
+function getBattingOrderSize(rules: GameRules, lineupLength?: number): number {
+  if (rules.everyoneBats && lineupLength) return lineupLength;
   return rules.playersPerSide;
 }
 

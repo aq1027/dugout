@@ -55,6 +55,14 @@ export function RulesConfig({ rules, onChange }: RulesConfigProps) {
         />
       </div>
       <div className="rule-row">
+        <label>Everyone bats (continuous order)</label>
+        <input
+          type="checkbox"
+          checked={rules.everyoneBats}
+          onChange={e => update({ everyoneBats: e.target.checked })}
+        />
+      </div>
+      <div className="rule-row">
         <label>Mercy rule (run lead)</label>
         <input
           type="number"

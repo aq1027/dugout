@@ -51,6 +51,8 @@ export interface GameRules {
   mercyInning: number | null;
   /** Extra-inning auto-runner on 2B */
   extraInningAutoRunner: boolean;
+  /** Continuous batting order — entire roster bats */
+  everyoneBats: boolean;
 }
 
 // ─── Derived game state (computed from events, never stored) ────

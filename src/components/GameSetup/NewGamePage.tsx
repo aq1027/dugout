@@ -2,7 +2,8 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { db } from '../../db';
 import { getRules } from '../../engine/rules';
-import type { SportType } from '../../models/common';
+import type { SportType, PositionNumber } from '../../models/common';
+import { POSITION_LABELS } from '../../models/common';
 import type { GameRules, Game } from '../../models/game';
 import type { Player } from '../../models/player';
 import type { LineupSlot } from '../../models/lineup';
@@ -170,6 +171,7 @@ export function NewGamePage() {
             onChange={lineup => setAway(prev => ({ ...prev, lineup }))}
             useDH={rules.useDH}
             playersPerSide={rules.playersPerSide}
+            everyoneBats={rules.everyoneBats}
           />
           <LineupBuilder
             label={home.name || 'Home'}
@@ -178,6 +180,7 @@ export function NewGamePage() {
             onChange={lineup => setHome(prev => ({ ...prev, lineup }))}
             useDH={rules.useDH}
             playersPerSide={rules.playersPerSide}
+            everyoneBats={rules.everyoneBats}
           />
         </>
       )}
@@ -190,28 +193,49 @@ export function NewGamePage() {
             <div className="detail">
               {sport === 'baseball' ? '⚾ Baseball' : '🥎 Softball'} · {rules.innings} innings
               {rules.useDH && ' · DH'}
+              {rules.everyoneBats && ' · Everyone Bats'}
               {rules.dpFlex && ' · DP/FLEX'}
               {location && ` · ${location}`}
             </div>
           </div>
-          <div className="confirm-card">
-            <h4>Away — {away.name}</h4>
-            <div className="detail">
-              {away.lineup.map((slot, i) => {
-                const p = away.players.find(pl => pl.id === slot.playerId);
-                return p ? `${i + 1}. ${p.firstName} ${p.lastName}` : '';
-              }).join('\n').split('\n').map((line, i) => <div key={i}>{line}</div>)}
-            </div>
-          </div>
-          <div className="confirm-card">
-            <h4>Home — {home.name}</h4>
-            <div className="detail">
-              {home.lineup.map((slot, i) => {
-                const p = home.players.find(pl => pl.id === slot.playerId);
-                return p ? `${i + 1}. ${p.firstName} ${p.lastName}` : '';
-              }).join('\n').split('\n').map((line, i) => <div key={i}>{line}</div>)}
-            </div>
-          </div>
+          {[{ label: 'Away', team: away }, { label: 'Home', team: home }].map(({ label, team }) => {
+            const pitcher = team.lineup.find(s => s.position === 1);
+            const batters = team.lineup.filter(s => s.position !== 1);
+            const pitcherPlayer = pitcher ? team.players.find(p => p.id === pitcher.playerId) : null;
+            const isTwoWay = pitcher && batters.some(s => s.playerId === pitcher.playerId);
+            return (
+              <div key={label} className="confirm-card">
+                <h4>{label} — {team.name}</h4>
+                {pitcherPlayer && (
+                  <div className="confirm-pitcher">
+                    <span className="confirm-pitcher-label">P</span>
+                    <span>
+                      {pitcherPlayer.number != null && `#${pitcherPlayer.number} `}
+                      {pitcherPlayer.firstName} {pitcherPlayer.lastName}
+                      {isTwoWay && <span className="two-way-badge">Two-Way</span>}
+                    </span>
+                  </div>
+                )}
+                <table className="confirm-lineup-table">
+                  <thead>
+                    <tr><th>#</th><th>Player</th><th>Pos</th></tr>
+                  </thead>
+                  <tbody>
+                    {batters.map((slot, i) => {
+                      const p = team.players.find(pl => pl.id === slot.playerId);
+                      return (
+                        <tr key={i}>
+                          <td className="order-num">{i + 1}</td>
+                          <td>{p ? `${p.number != null ? '#' + p.number + ' ' : ''}${p.firstName} ${p.lastName}` : '—'}</td>
+                          <td className="pos-cell">{POSITION_LABELS[slot.position as PositionNumber]}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            );
+          })}
         </div>
       )}
 
