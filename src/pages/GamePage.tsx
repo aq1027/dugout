@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react'
-import { useParams, Link } from 'react-router-dom'
+import { useParams, Link, useNavigate } from 'react-router-dom'
 import { db } from '../db'
 import type { Game } from '../models/game'
 import type { Player } from '../models/player'
@@ -11,14 +11,16 @@ import { GameStateDisplay } from '../components/Scoring/GameStateDisplay'
 import { LineScore } from '../components/Scoring/LineScore'
 import { AtBatPanel } from '../components/Scoring/AtBatPanel'
 import { BetweenABPanel } from '../components/Scoring/BetweenABPanel'
-import { UndoButton } from '../components/Scoring/UndoButton'
+import { UndoButton, ConfirmDialog } from '../components/Scoring/UndoButton'
 import '../components/Scoring/Scoring.css'
 
 export function GamePage() {
   const { gameId } = useParams<{ gameId: string }>()
+  const navigate = useNavigate()
   const [game, setGame] = useState<Game | null>(null)
   const [players, setPlayers] = useState<Map<Id, Player>>(new Map())
   const [showLineScore, setShowLineScore] = useState(false)
+  const [confirmAction, setConfirmAction] = useState<'end' | 'cancel' | 'delete' | null>(null)
 
   // Load game and players
   useEffect(() => {
@@ -63,6 +65,40 @@ export function GamePage() {
     setGame(updatedGame)
   }, [game])
 
+  // End game (mark as final)
+  const handleEndGame = useCallback(async () => {
+    if (!game) return
+    const updatedGame: Game = { ...game, status: 'final', updatedAt: new Date().toISOString() }
+    await db.games.put(updatedGame)
+    setGame(updatedGame)
+    setConfirmAction(null)
+  }, [game])
+
+  // Cancel/suspend game
+  const handleCancelGame = useCallback(async () => {
+    if (!game) return
+    const updatedGame: Game = { ...game, status: 'suspended', updatedAt: new Date().toISOString() }
+    await db.games.put(updatedGame)
+    setGame(updatedGame)
+    setConfirmAction(null)
+  }, [game])
+
+  // Delete game entirely
+  const handleDeleteGame = useCallback(async () => {
+    if (!game) return
+    await db.games.delete(game.id)
+    setConfirmAction(null)
+    navigate('/games')
+  }, [game, navigate])
+
+  // Resume a suspended game
+  const handleResumeGame = useCallback(async () => {
+    if (!game) return
+    const updatedGame: Game = { ...game, status: game.events.length > 0 ? 'in_progress' : 'setup', updatedAt: new Date().toISOString() }
+    await db.games.put(updatedGame)
+    setGame(updatedGame)
+  }, [game])
+
   if (!game) {
     return (
       <div className="home">
@@ -80,7 +116,13 @@ export function GamePage() {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <Link to="/games" style={{ fontSize: 14 }}>← Games</Link>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          <UndoButton canUndo={game.events.length > 0} onUndo={handleUndo} />
+          {!state.isGameOver && game.status !== 'final' && game.status !== 'suspended' && (
+            <>
+              <UndoButton canUndo={game.events.length > 0} onUndo={handleUndo} />
+              <button onClick={() => setConfirmAction('end')} style={{ fontSize: 13 }}>End</button>
+              <button onClick={() => setConfirmAction('cancel')} style={{ fontSize: 13 }}>Cancel</button>
+            </>
+          )}
           <button
             onClick={() => setShowLineScore(!showLineScore)}
             style={{ fontSize: 13 }}
@@ -106,12 +148,30 @@ export function GamePage() {
       {/* Diamond + outs + count */}
       <GameStateDisplay state={state} />
 
-      {/* Game over banner */}
-      {state.isGameOver ? (
+      {/* Game over / final / suspended banners */}
+      {(state.isGameOver || game.status === 'final') ? (
         <div className="game-over-banner">
           <h3>Final</h3>
           <div className="final-score">
             {game.awayTeamName} {state.awayScore} — {game.homeTeamName} {state.homeScore}
+          </div>
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'center', marginTop: 12 }}>
+            <button onClick={() => setConfirmAction('delete')} style={{ fontSize: 13, color: 'var(--color-error)' }}>
+              Delete Game
+            </button>
+          </div>
+        </div>
+      ) : game.status === 'suspended' ? (
+        <div className="game-over-banner" style={{ borderColor: 'var(--color-warning)' }}>
+          <h3 style={{ color: 'var(--color-warning)' }}>Suspended</h3>
+          <div className="final-score">
+            {game.awayTeamName} {state.awayScore} — {game.homeTeamName} {state.homeScore}
+          </div>
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'center', marginTop: 12 }}>
+            <button className="primary" onClick={handleResumeGame}>Resume Game</button>
+            <button onClick={() => setConfirmAction('delete')} style={{ fontSize: 13, color: 'var(--color-error)' }}>
+              Delete
+            </button>
           </div>
         </div>
       ) : (
@@ -131,6 +191,35 @@ export function GamePage() {
             onEvent={handleEvent}
           />
         </>
+      )}
+
+      {/* Confirm dialogs */}
+      {confirmAction === 'end' && (
+        <ConfirmDialog
+          title="End Game"
+          message="Mark this game as final? You can still view it but scoring will be locked."
+          confirmLabel="End Game"
+          onConfirm={handleEndGame}
+          onCancel={() => setConfirmAction(null)}
+        />
+      )}
+      {confirmAction === 'cancel' && (
+        <ConfirmDialog
+          title="Suspend Game"
+          message="Suspend this game? You can resume it later."
+          confirmLabel="Suspend"
+          onConfirm={handleCancelGame}
+          onCancel={() => setConfirmAction(null)}
+        />
+      )}
+      {confirmAction === 'delete' && (
+        <ConfirmDialog
+          title="Delete Game"
+          message={`Delete ${game.awayTeamName} @ ${game.homeTeamName}? This cannot be undone.`}
+          confirmLabel="Delete"
+          onConfirm={handleDeleteGame}
+          onCancel={() => setConfirmAction(null)}
+        />
       )}
     </div>
   )

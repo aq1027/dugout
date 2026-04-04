@@ -2,13 +2,21 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { db } from '../db'
 import type { Game } from '../models/game'
+import { ConfirmDialog } from '../components/Scoring/UndoButton'
 
 export function GamesPage() {
   const [games, setGames] = useState<Game[]>([])
+  const [deleteTarget, setDeleteTarget] = useState<Game | null>(null)
 
-  useEffect(() => {
-    db.games.orderBy('date').reverse().toArray().then(setGames)
-  }, [])
+  const loadGames = () => db.games.orderBy('date').reverse().toArray().then(setGames)
+
+  useEffect(() => { loadGames() }, [])
+
+  const deleteGame = async (game: Game) => {
+    await db.games.delete(game.id)
+    setDeleteTarget(null)
+    await loadGames()
+  }
 
   return (
     <div className="home">
@@ -22,8 +30,8 @@ export function GamesPage() {
       {games.length > 0 && (
         <div className="game-list">
           {games.map(game => (
-            <Link key={game.id} to={`/game/${game.id}`} className="game-list-item">
-              <div>
+            <div key={game.id} className="game-list-item" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Link to={`/game/${game.id}`} style={{ flex: 1, color: 'inherit', textDecoration: 'none' }}>
                 <div className="teams">
                   {game.awayTeamName} @ {game.homeTeamName}
                 </div>
@@ -31,8 +39,14 @@ export function GamesPage() {
                   {new Date(game.date).toLocaleDateString()} · {game.status}
                   {game.sport === 'softball' ? ' · 🥎' : ' · ⚾'}
                 </div>
-              </div>
-            </Link>
+              </Link>
+              <button
+                onClick={() => setDeleteTarget(game)}
+                style={{ minHeight: 28, minWidth: 28, padding: 0, color: 'var(--color-error)', background: 'none', fontSize: 16 }}
+              >
+                🗑
+              </button>
+            </div>
           ))}
         </div>
       )}
@@ -41,6 +55,16 @@ export function GamesPage() {
         <p style={{ color: 'var(--color-text-muted)', fontSize: 14, marginTop: 16 }}>
           No games yet. Create a new game to get started!
         </p>
+      )}
+
+      {deleteTarget && (
+        <ConfirmDialog
+          title="Delete Game"
+          message={`Delete ${deleteTarget.awayTeamName} @ ${deleteTarget.homeTeamName}? This cannot be undone.`}
+          confirmLabel="Delete"
+          onConfirm={() => deleteGame(deleteTarget)}
+          onCancel={() => setDeleteTarget(null)}
+        />
       )}
     </div>
   )

@@ -5,6 +5,7 @@ import type { Player } from '../models/player'
 import type { PositionNumber } from '../models/common'
 import { POSITION_LABELS } from '../models/common'
 import { generateId } from '../utils/id'
+import { ConfirmDialog } from '../components/Scoring/UndoButton'
 
 export function TeamsPage() {
   const [teams, setTeams] = useState<Team[]>([])
@@ -12,6 +13,9 @@ export function TeamsPage() {
   const [players, setPlayers] = useState<Player[]>([])
   const [showNewForm, setShowNewForm] = useState(false)
   const [newName, setNewName] = useState('')
+  const [editingName, setEditingName] = useState(false)
+  const [editName, setEditName] = useState('')
+  const [confirmDelete, setConfirmDelete] = useState<Team | null>(null)
 
   // New player form
   const [newFirst, setNewFirst] = useState('')
@@ -82,13 +86,65 @@ export function TeamsPage() {
     setPlayers(prev => prev.filter(p => p.id !== playerId))
   }
 
+  const renameTeam = async () => {
+    if (!selectedTeam || !editName.trim()) return
+    await db.teams.update(selectedTeam.id, {
+      name: editName.trim(),
+      updatedAt: new Date().toISOString(),
+    })
+    setSelectedTeam({ ...selectedTeam, name: editName.trim() })
+    setEditingName(false)
+    await loadTeams()
+  }
+
+  const deleteTeam = async (team: Team) => {
+    // Delete all players on the team
+    await db.players.where('teamId').equals(team.id).delete()
+    await db.teams.delete(team.id)
+    if (selectedTeam?.id === team.id) setSelectedTeam(null)
+    setConfirmDelete(null)
+    await loadTeams()
+  }
+
   if (selectedTeam) {
     return (
       <div className="home">
         <button onClick={() => setSelectedTeam(null)} style={{ alignSelf: 'flex-start' }}>
           ← Back to teams
         </button>
-        <h2>{selectedTeam.name}</h2>
+
+        {/* Team name — tap to edit */}
+        {editingName ? (
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <input
+              type="text"
+              value={editName}
+              onChange={e => setEditName(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') renameTeam(); if (e.key === 'Escape') setEditingName(false); }}
+              autoFocus
+              style={{ flex: 1, padding: '8px 12px', borderRadius: 'var(--radius)', border: '1px solid var(--color-border)', background: 'var(--color-bg)', color: 'var(--color-text)', fontSize: 18, fontWeight: 700 }}
+            />
+            <button className="primary" onClick={renameTeam} style={{ minHeight: 'var(--tap-target)' }}>Save</button>
+            <button onClick={() => setEditingName(false)} style={{ minHeight: 'var(--tap-target)' }}>✕</button>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <h2 style={{ flex: 1 }}>{selectedTeam.name}</h2>
+            <button
+              onClick={() => { setEditName(selectedTeam.name); setEditingName(true); }}
+              style={{ fontSize: 13, padding: '4px 10px' }}
+            >
+              ✏️ Edit
+            </button>
+            <button
+              onClick={() => setConfirmDelete(selectedTeam)}
+              style={{ fontSize: 13, padding: '4px 10px', color: 'var(--color-error)' }}
+            >
+              🗑 Delete
+            </button>
+          </div>
+        )}
+
         <p>Roster · {players.length} players</p>
 
         <div className="roster-list" style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
@@ -145,6 +201,16 @@ export function TeamsPage() {
           </select>
           <button onClick={addPlayer} className="primary" style={{ minHeight: 'var(--tap-target)', padding: 0, fontSize: 20 }}>+</button>
         </div>
+
+        {confirmDelete && (
+          <ConfirmDialog
+            title="Delete Team"
+            message={`Delete "${confirmDelete.name}" and all its players? This cannot be undone.`}
+            confirmLabel="Delete"
+            onConfirm={() => deleteTeam(confirmDelete)}
+            onCancel={() => setConfirmDelete(null)}
+          />
+        )}
       </div>
     )
   }
@@ -175,17 +241,33 @@ export function TeamsPage() {
       {teams.length > 0 && (
         <div className="game-list">
           {teams.map(team => (
-            <button
-              key={team.id}
-              className="game-list-item"
-              onClick={() => selectTeam(team)}
-              style={{ textAlign: 'left', cursor: 'pointer' }}
-            >
-              <div className="teams">{team.name}</div>
-              <div className="meta">{team.playerIds.length} players</div>
-            </button>
+            <div key={team.id} className="game-list-item" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <button
+                onClick={() => selectTeam(team)}
+                style={{ textAlign: 'left', cursor: 'pointer', flex: 1, background: 'none', border: 'none', padding: '8px 0', color: 'inherit' }}
+              >
+                <div className="teams">{team.name}</div>
+                <div className="meta">{team.playerIds.length} players</div>
+              </button>
+              <button
+                onClick={(e) => { e.stopPropagation(); setConfirmDelete(team); }}
+                style={{ minHeight: 28, minWidth: 28, padding: 0, color: 'var(--color-error)', background: 'none', fontSize: 16 }}
+              >
+                🗑
+              </button>
+            </div>
           ))}
         </div>
+      )}
+
+      {confirmDelete && (
+        <ConfirmDialog
+          title="Delete Team"
+          message={`Delete "${confirmDelete.name}" and all its players? This cannot be undone.`}
+          confirmLabel="Delete"
+          onConfirm={() => deleteTeam(confirmDelete)}
+          onCancel={() => setConfirmDelete(null)}
+        />
       )}
 
       {teams.length === 0 && !showNewForm && (
