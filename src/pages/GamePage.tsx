@@ -3,7 +3,7 @@ import { useParams, Link, useNavigate } from 'react-router-dom'
 import { db } from '../db'
 import type { Game } from '../models/game'
 import type { Player } from '../models/player'
-import type { Id } from '../models/common'
+import type { Id, Count } from '../models/common'
 import type { PlayEvent } from '../models/play'
 import { deriveGameState, undoLastEvent } from '../engine/gameEngine'
 import { Scoreboard } from '../components/Scoring/Scoreboard'
@@ -12,7 +12,9 @@ import { LineScore } from '../components/Scoring/LineScore'
 import { AtBatPanel } from '../components/Scoring/AtBatPanel'
 import { BetweenABPanel } from '../components/Scoring/BetweenABPanel'
 import { UndoButton, ConfirmDialog } from '../components/Scoring/UndoButton'
-import { PositionChangePanel } from '../components/Scoring/PositionChangePanel'
+import { LineupPanel } from '../components/Scoring/LineupPanel'
+import { GameLog } from '../components/Scoring/GameLog'
+import { BoxScore } from '../components/Scoring/BoxScore'
 import '../components/Scoring/Scoring.css'
 
 export function GamePage() {
@@ -21,7 +23,11 @@ export function GamePage() {
   const [game, setGame] = useState<Game | null>(null)
   const [players, setPlayers] = useState<Map<Id, Player>>(new Map())
   const [showLineScore, setShowLineScore] = useState(false)
+  const [showLog, setShowLog] = useState(false)
+  const [liveCount, setLiveCount] = useState<Count>({ balls: 0, strikes: 0 })
+  const [showLineup, setShowLineup] = useState<'away' | 'home' | null>(null)
   const [confirmAction, setConfirmAction] = useState<'end' | 'cancel' | 'delete' | null>(null)
+  const [livePitchCount, setLivePitchCount] = useState(0)
 
   // Load game and players
   useEffect(() => {
@@ -117,23 +123,66 @@ export function GamePage() {
 
   const state = deriveGameState(game)
 
+  // Determine batting/pitching teams & current pitcher
+  const battingTeamName = state.halfInning === 'top' ? game.awayTeamName : game.homeTeamName
+  const pitchingTeamName = state.halfInning === 'top' ? game.homeTeamName : game.awayTeamName
+  const pitchingLineup = state.halfInning === 'top' ? game.homeLineup : game.awayLineup
+
+  // Current pitcher is position 1 in the pitching lineup (accounting for subs)
+  const pitchingSubs = [...pitchingLineup.substitutions].reverse()
+  const pitchingSub = pitchingSubs.find(s => s.position === 1)
+  const currentPitcher = pitchingSub
+    ? pitchingSub.inPlayerId
+    : (pitchingLineup.startingOrder.find(s => s.position === 1)?.playerId ?? null)
+
+  // Count committed pitches for current pitcher
+  // Walk events in order, tracking pitcher changes via SubstitutionEvents
+  let committedPitchCount = 0
+  if (currentPitcher) {
+    // Track the active pitcher for each fielding side as we walk events
+    const activePitcher: { top: Id | null; bottom: Id | null } = {
+      top: game.homeLineup.startingOrder.find(s => s.position === 1)?.playerId ?? null,
+      bottom: game.awayLineup.startingOrder.find(s => s.position === 1)?.playerId ?? null,
+    }
+    for (const e of game.events) {
+      if (e.type === 'substitution' && e.position === 1 && e.subType === 'pitching_change') {
+        // Update the active pitcher for the fielding side
+        const fieldingSide = e.halfInning === 'top' ? 'top' : 'bottom'
+        activePitcher[fieldingSide] = e.inPlayerId
+      }
+      if (e.pitchSequence && e.pitchSequence.length > 0) {
+        const fieldingSide = e.halfInning
+        if (activePitcher[fieldingSide] === currentPitcher) {
+          committedPitchCount += e.pitchSequence.length
+        }
+      }
+    }
+  }
+
+  const pitcherDisplay = currentPitcher ? (() => {
+    const p = players.get(currentPitcher)
+    if (!p) return pitchingTeamName
+    const num = p.number != null ? `#${p.number} ` : ''
+    return `${num}${p.firstName} ${p.lastName}`
+  })() : pitchingTeamName
+
   return (
     <div className="scoring-layout">
       {/* Top bar */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      <div className="scoring-top-bar">
         <Link to="/games" style={{ fontSize: 14 }}>← Games</Link>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+        <div className="bar-actions">
           {!state.isGameOver && game.status !== 'final' && game.status !== 'suspended' && (
             <>
               <UndoButton canUndo={game.events.length > 0} onUndo={handleUndo} />
-              <button onClick={() => setConfirmAction('end')} style={{ fontSize: 13 }}>End</button>
-              <button onClick={() => setConfirmAction('cancel')} style={{ fontSize: 13 }}>Cancel</button>
+              <button onClick={() => setConfirmAction('end')}>End</button>
+              <button onClick={() => setConfirmAction('cancel')}>Cancel</button>
             </>
           )}
-          <button
-            onClick={() => setShowLineScore(!showLineScore)}
-            style={{ fontSize: 13 }}
-          >
+          <button onClick={() => { setShowLog(!showLog); if (!showLog) setShowLineScore(false); }}>
+            {showLog ? 'Hide' : 'Logs'}
+          </button>
+          <button onClick={() => { setShowLineScore(!showLineScore); if (!showLineScore) setShowLog(false); }}>
             {showLineScore ? 'Hide' : 'Box'}
           </button>
         </div>
@@ -142,18 +191,41 @@ export function GamePage() {
       {/* Scoreboard */}
       <Scoreboard game={game} state={state} />
 
-      {/* Collapsible line score */}
+      {/* Collapsible line score + box score */}
       {showLineScore && (
-        <LineScore
-          state={state}
-          awayTeamName={game.awayTeamName}
-          homeTeamName={game.homeTeamName}
-          innings={game.rules.innings}
-        />
+        <>
+          <LineScore
+            state={state}
+            awayTeamName={game.awayTeamName}
+            homeTeamName={game.homeTeamName}
+            innings={game.rules.innings}
+          />
+          <BoxScore game={game} state={state} players={players} />
+        </>
+      )}
+
+      {/* Collapsible game log */}
+      {showLog && <GameLog events={game.events} players={players} />}
+
+      {/* Game context: batting / pitching + pitch count */}
+      {!state.isGameOver && game.status !== 'final' && game.status !== 'suspended' && (
+        <div className="game-context">
+          <div className="context-item">
+            <span className="context-label">Batting</span>
+            <span className="context-value">{battingTeamName}</span>
+          </div>
+          <div className="context-item" style={{ textAlign: 'right' }}>
+            <span className="context-label">Pitching</span>
+            <span className="context-value">{pitcherDisplay}</span>
+            <span className="context-value pitches" style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>
+              {committedPitchCount + livePitchCount} pitches
+            </span>
+          </div>
+        </div>
       )}
 
       {/* Diamond + outs + count */}
-      <GameStateDisplay state={state} />
+      <GameStateDisplay state={state} liveCount={liveCount} />
 
       {/* Game over / final / suspended banners */}
       {(state.isGameOver || game.status === 'final') ? (
@@ -183,13 +255,35 @@ export function GamePage() {
         </div>
       ) : (
         <>
-          {/* Defensive position changes */}
-          <PositionChangePanel
-            game={game}
-            state={state}
-            players={players}
-            onPositionChange={handlePositionChange}
-          />
+          {/* Team lineup buttons */}
+          <div className="lineup-toggle-bar">
+            <button
+              className={showLineup === 'away' ? 'active' : ''}
+              onClick={() => setShowLineup(showLineup === 'away' ? null : 'away')}
+            >
+              {game.awayTeamName}
+            </button>
+            <button
+              className={showLineup === 'home' ? 'active' : ''}
+              onClick={() => setShowLineup(showLineup === 'home' ? null : 'home')}
+            >
+              {game.homeTeamName}
+            </button>
+          </div>
+
+          {showLineup && (
+            <LineupPanel
+              game={game}
+              state={state}
+              players={players}
+              teamPlayers={[...players.values()].filter(p =>
+                p.teamId === (showLineup === 'away' ? game.awayTeamId : game.homeTeamId)
+              )}
+              isAway={showLineup === 'away'}
+              onGameUpdate={handlePositionChange}
+              onEvent={handleEvent}
+            />
+          )}
 
           {/* Between-AB events (SB, CS, WP, PB, Balk) */}
           <BetweenABPanel
@@ -204,6 +298,8 @@ export function GamePage() {
             state={state}
             players={players}
             onEvent={handleEvent}
+            onCountChange={setLiveCount}
+            onPitchCountChange={setLivePitchCount}
           />
         </>
       )}

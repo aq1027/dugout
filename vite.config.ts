@@ -4,6 +4,7 @@ import { VitePWA } from 'vite-plugin-pwa'
 
 // https://vite.dev/config/
 export default defineConfig({
+  base: '/dugout/',
   plugins: [
     react(),
     VitePWA({
@@ -16,8 +17,8 @@ export default defineConfig({
         theme_color: '#1a3a2a',
         background_color: '#0f1f17',
         display: 'standalone',
-        scope: '/',
-        start_url: '/',
+        scope: '/dugout/',
+        start_url: '/dugout/',
         icons: [
           {
             src: 'pwa-192x192.png',

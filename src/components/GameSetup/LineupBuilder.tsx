@@ -272,9 +272,19 @@ export function LineupBuilder({
                   <span className="slot-name">{playerLabel(slot.playerId)}</span>
                   <select
                     value={slot.position ?? ''}
-                    onChange={e => setPosition(i, parseInt(e.target.value) as PositionNumber)}
+                    onChange={e => {
+                      const val = e.target.value;
+                      if (val === '') {
+                        const next = [...slots];
+                        next[i] = { ...next[i], position: null };
+                        emit(next, pitcherId, twoWay);
+                      } else {
+                        setPosition(i, parseInt(val) as PositionNumber);
+                      }
+                    }}
                     className={slot.position && dupPositions.has(slot.position) ? 'pos-error' : ''}
                   >
+                    <option value="">--</option>
                     {posOptions(slot.position).map(pos => (
                       <option key={pos} value={pos}>{POSITION_LABELS[pos]}</option>
                     ))}

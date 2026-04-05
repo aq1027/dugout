@@ -1,16 +1,38 @@
+/* ─── Shared tokens ─────────────────────────────── */
 :root {
-  --color-bg: #0f1f17;
-  --color-surface: #1a3a2a;
-  --color-surface-hover: #224a35;
-  --color-primary: #4ade80;
-  --color-primary-dim: #22c55e;
-  --color-text: #e8f5e9;
-  --color-text-muted: #a5d6a7;
-  --color-border: #2d5a3f;
-  --color-error: #ef4444;
-  --color-warning: #f59e0b;
   --radius: 8px;
   --tap-target: 44px;
+  --color-error: #ef4444;
+  --color-warning: #f59e0b;
+  --color-primary: #2563eb;
+  --color-primary-dim: #1d4ed8;
+}
+
+/* ─── Light theme (default) ────────────────────── */
+:root,
+[data-theme="light"] {
+  --color-bg: #ffffff;
+  --color-surface: #f5f5f5;
+  --color-surface-hover: #e8e8e8;
+  --color-text: #1a1a1a;
+  --color-text-muted: #6b7280;
+  --color-border: #d4d4d4;
+  --color-primary: #2563eb;
+  --color-primary-dim: #1d4ed8;
+  --color-primary-text: #ffffff;
+}
+
+/* ─── Dark theme ───────────────────────────────── */
+[data-theme="dark"] {
+  --color-bg: #1e1e2e;
+  --color-surface: #2a2a3c;
+  --color-surface-hover: #353548;
+  --color-text: #e4e4ef;
+  --color-text-muted: #9898ab;
+  --color-border: #3d3d50;
+  --color-primary: #60a5fa;
+  --color-primary-dim: #3b82f6;
+  --color-primary-text: #0f172a;
 }
 
 *,
@@ -70,7 +92,7 @@ button:active {
 
 button.primary {
   background-color: var(--color-primary-dim);
-  color: #0f1f17;
+  color: var(--color-primary-text);
   font-weight: 600;
 }
 
@@ -78,12 +100,17 @@ button.primary:hover {
   background-color: var(--color-primary);
 }
 
+button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
 /* High-contrast / sunlight mode */
 @media (prefers-contrast: more) {
-  :root {
+  [data-theme="dark"] {
     --color-bg: #000;
     --color-surface: #1a1a1a;
     --color-text: #fff;
-    --color-primary: #00ff66;
+    --color-primary: #60a5fa;
   }
 }

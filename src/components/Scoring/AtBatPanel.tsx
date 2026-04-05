@@ -28,6 +28,8 @@ interface AtBatPanelProps {
   state: DerivedGameState;
   players: Map<Id, Player>;
   onEvent: (event: PlayEvent) => void;
+  onCountChange?: (count: { balls: number; strikes: number }) => void;
+  onPitchCountChange?: (count: number) => void;
 }
 
 // ─── Helpers ────────────────────────────────────
@@ -60,7 +62,7 @@ function baseLabel(b: Base | 'batter'): string {
   return b;
 }
 
-export function AtBatPanel({ game, state, players, onEvent }: AtBatPanelProps) {
+export function AtBatPanel({ game, state, players, onEvent, onCountChange, onPitchCountChange }: AtBatPanelProps) {
   const [phase, setPhase] = useState<ScoringPhase>('pitch');
   const [pitches, setPitches] = useState<Pitch[]>([]);
   const [count, setCount] = useState({ balls: 0, strikes: 0 });
@@ -79,7 +81,9 @@ export function AtBatPanel({ game, state, players, onEvent }: AtBatPanelProps) {
     setNotation('');
     setRunners([]);
     setSacrifice(undefined);
-  }, []);
+    onCountChange?.({ balls: 0, strikes: 0 });
+    onPitchCountChange?.(0);
+  }, [onCountChange, onPitchCountChange]);
 
   // ─── Build runner states for resolution ─────
   const buildRunnerStates = useCallback((outcomeVal: OutcomeType): RunnerState[] => {
@@ -125,6 +129,7 @@ export function AtBatPanel({ game, state, players, onEvent }: AtBatPanelProps) {
     const pitch: Pitch = { result };
     const newPitches = [...pitches, pitch];
     setPitches(newPitches);
+    onPitchCountChange?.(newPitches.length);
 
     if (result === 'ball') {
       const newBalls = count.balls + 1;
@@ -161,6 +166,7 @@ export function AtBatPanel({ game, state, players, onEvent }: AtBatPanelProps) {
         return;
       }
       setCount({ ...count, balls: newBalls });
+      onCountChange?.({ ...count, balls: newBalls });
     } else if (result === 'strike_swinging' || result === 'strike_looking') {
       const newStrikes = count.strikes + 1;
       if (newStrikes >= 3) {
@@ -182,15 +188,18 @@ export function AtBatPanel({ game, state, players, onEvent }: AtBatPanelProps) {
         return;
       }
       setCount({ ...count, strikes: newStrikes });
+      onCountChange?.({ ...count, strikes: newStrikes });
     } else if (result === 'foul') {
       // Foul only adds strike if less than 2 strikes
       if (count.strikes < 2) {
-        setCount({ ...count, strikes: count.strikes + 1 });
+        const newCount = { ...count, strikes: count.strikes + 1 };
+        setCount(newCount);
+        onCountChange?.(newCount);
       }
     } else if (result === 'in_play') {
       setPhase('outcome');
     }
-  }, [pitches, count, state, batter, onEvent, resetAtBat]);
+  }, [pitches, count, state, batter, onEvent, resetAtBat, onCountChange, onPitchCountChange]);
 
   // ─── HBP handler ────────────────────────────
   const handleHBP = useCallback(() => {
@@ -406,6 +415,7 @@ export function AtBatPanel({ game, state, players, onEvent }: AtBatPanelProps) {
   // ─── Render: Batter info ────────────────────
   const renderBatterInfo = () => (
     <div className="batter-info">
+      <span className="at-the-plate-label">At the Plate</span>
       <span className="batter-order">#{batter.orderIndex + 1}</span>
       <span className="batter-name">{getPlayerDisplay(players, batter.playerId)}</span>
     </div>

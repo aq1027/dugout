@@ -1,4 +1,4 @@
-import type { BaseState } from '../../models/common';
+import type { BaseState, Count } from '../../models/common';
 import type { DerivedGameState } from '../../models/game';
 
 interface DiamondProps {
@@ -16,54 +16,36 @@ export function Diamond({ bases }: DiamondProps) {
   );
 }
 
-interface OutsProps {
-  outs: number;
-}
-
-export function OutsDisplay({ outs }: OutsProps) {
-  return (
-    <div className="outs-display">
-      <div className={`out-dot${outs >= 1 ? ' active' : ''}`} />
-      <div className={`out-dot${outs >= 2 ? ' active' : ''}`} />
-      <span className="outs-label">Outs</span>
-    </div>
-  );
-}
-
-interface CountDisplayProps {
-  count: { balls: number; strikes: number };
-}
-
-export function CountDisplay({ count }: CountDisplayProps) {
-  return (
-    <div className="count-display">
-      <div className="count-group balls">
-        <span className="count-label">B</span>
-        {[1, 2, 3].map(i => (
-          <div key={i} className={`count-dot${count.balls >= i ? ' active' : ''}`} />
-        ))}
-      </div>
-      <div className="count-group strikes">
-        <span className="count-label">S</span>
-        {[1, 2].map(i => (
-          <div key={i} className={`count-dot${count.strikes >= i ? ' active' : ''}`} />
-        ))}
-      </div>
-    </div>
-  );
-}
-
 interface GameStateDisplayProps {
   state: DerivedGameState;
+  liveCount?: Count;
 }
 
-export function GameStateDisplay({ state }: GameStateDisplayProps) {
+export function GameStateDisplay({ state, liveCount }: GameStateDisplayProps) {
+  const count = liveCount ?? state.count;
+
   return (
-    <div className="diamond-container">
+    <div className="state-panel">
       <Diamond bases={state.bases} />
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        <OutsDisplay outs={state.outs} />
-        <CountDisplay count={state.count} />
+      <div className="count-column">
+        <div className="count-row balls">
+          <span className="count-label">B</span>
+          {[1, 2, 3].map(i => (
+            <div key={i} className={`dot${count.balls >= i ? ' active' : ''}`} />
+          ))}
+        </div>
+        <div className="count-row strikes">
+          <span className="count-label">S</span>
+          {[1, 2].map(i => (
+            <div key={i} className={`dot${count.strikes >= i ? ' active' : ''}`} />
+          ))}
+        </div>
+        <div className="count-row outs">
+          <span className="count-label">O</span>
+          {[1, 2].map(i => (
+            <div key={i} className={`dot${state.outs >= i ? ' active' : ''}`} />
+          ))}
+        </div>
       </div>
     </div>
   );
