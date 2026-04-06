@@ -75,8 +75,12 @@ src/
 
 1. Clone the repo (`git clone https://github.com/aq1027/dugout.git`)
 2. Create a feature branch (`git checkout -b feature/my-feature`)
-3. Commit your changes
-4. Push your branch and open a PR
+3. **Run tests and type-check before pushing:**
+   ```sh
+   npx tsc --noEmit && npx vitest run
+   ```
+4. Commit your changes
+5. Push your branch and open a PR
 
 ## License
 
