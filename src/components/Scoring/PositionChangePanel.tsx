@@ -4,6 +4,7 @@ import { POSITION_LABELS } from '../../models/common';
 import type { Game } from '../../models/game';
 import type { DerivedGameState } from '../../models/game';
 import type { Player } from '../../models/player';
+import { displayPlayerName } from '../../models/player';
 import type { LineupSlot } from '../../models/lineup';
 
 interface PositionChangePanelProps {
@@ -66,8 +67,7 @@ export function PositionChangePanel({ game, state, players, onPositionChange }: 
   const getPlayerName = (id: Id) => {
     const p = players.get(id);
     if (!p) return '??';
-    const num = p.number != null ? `#${p.number} ` : '';
-    return `${num}${p.lastName || p.firstName}`;
+    return displayPlayerName(p);
   };
 
   // Check for duplicate positions

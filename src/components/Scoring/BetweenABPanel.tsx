@@ -1,22 +1,24 @@
 import { useState, useCallback } from 'react';
 import type { Id, Base } from '../../models/common';
 import type { RunnerMovement, PlayEvent } from '../../models/play';
-import type { DerivedGameState } from '../../models/game';
+import type { DerivedGameState, Game } from '../../models/game';
 import type { Player } from '../../models/player';
 import { generateId } from '../../utils/id';
 
 interface BetweenABPanelProps {
+  game: Game;
   state: DerivedGameState;
   players: Map<Id, Player>;
   onEvent: (event: PlayEvent) => void;
 }
 
-type BetweenAction = 'stolen_base' | 'caught_stealing' | 'wild_pitch' | 'passed_ball' | 'balk' | null;
+type BetweenAction = 'stolen_base' | 'caught_stealing' | 'wild_pitch' | 'passed_ball' | 'balk' | 'mound_visit' | 'timeout' | 'pickoff' | null;
 
-export function BetweenABPanel({ state, players, onEvent }: BetweenABPanelProps) {
+export function BetweenABPanel({ game, state, players, onEvent }: BetweenABPanelProps) {
   const [action, setAction] = useState<BetweenAction>(null);
   const [selectedRunner, setSelectedRunner] = useState<Id | null>(null);
   const [selectedBase, setSelectedBase] = useState<Base | null>(null);
+  const [pickoffBase, setPickoffBase] = useState<Base | null>(null);
 
   const runnersOnBase: { id: Id; base: Base }[] = [];
   if (state.bases.first) runnersOnBase.push({ id: state.bases.first, base: 'first' });
@@ -27,13 +29,15 @@ export function BetweenABPanel({ state, players, onEvent }: BetweenABPanelProps)
 
   const getPlayerName = (id: Id) => {
     const p = players.get(id);
-    return p ? `${p.lastName || p.firstName}` : '??';
+    if (!p) return '??';
+    return p.lastName || p.firstName || (p.number != null ? `#${p.number}` : '??');
   };
 
   const reset = useCallback(() => {
     setAction(null);
     setSelectedRunner(null);
     setSelectedBase(null);
+    setPickoffBase(null);
   }, []);
 
   const makeBaseEvent = useCallback(() => {
@@ -106,7 +110,94 @@ export function BetweenABPanel({ state, players, onEvent }: BetweenABPanelProps)
       onEvent(event);
       reset();
     }
-  }, [action, selectedRunner, selectedBase, state, runnersOnBase, onEvent, reset]);
+
+    if (action === 'mound_visit') {
+      const isAwayBatting = state.halfInning === 'top';
+      // Defensive team makes the mound visit
+      const teamId = isAwayBatting ? game.homeTeamId : game.awayTeamId;
+      const currentCount = isAwayBatting ? state.homeMoundVisits : state.awayMoundVisits;
+      const event: PlayEvent = {
+        ...makeCommon(),
+        runnerMovements: [],
+        type: 'mound_visit',
+        teamId,
+        visitNumber: currentCount + 1,
+      };
+      onEvent(event);
+      reset();
+    }
+
+    if (action === 'timeout') {
+      const isAwayBatting = state.halfInning === 'top';
+      // Offensive timeout = batting team, defensive = fielding team
+      // Default to offensive (batting team)
+      const teamId = isAwayBatting ? game.awayTeamId : game.homeTeamId;
+      const event: PlayEvent = {
+        ...makeCommon(),
+        runnerMovements: [],
+        type: 'timeout',
+        teamId,
+        timeoutType: 'offensive',
+      };
+      onEvent(event);
+      reset();
+    }
+
+    if (action === 'pickoff' && selectedRunner && pickoffBase) {
+      const runner = runnersOnBase.find(r => r.id === selectedRunner);
+      if (!runner) return;
+      // We'll ask user if successful — for now default to unsuccessful
+      // The UI will handle success/failure selection
+    }
+  }, [action, selectedRunner, selectedBase, pickoffBase, state, runnersOnBase, game, onEvent, reset]);
+
+  const handlePickoff = useCallback((successful: boolean) => {
+    if (!selectedRunner || !pickoffBase) return;
+    const runner = runnersOnBase.find(r => r.id === selectedRunner);
+    if (!runner) return;
+
+    const makeCommon = () => ({
+      id: generateId(),
+      timestamp: new Date().toISOString(),
+      inning: state.inning,
+      halfInning: state.halfInning,
+      outsBefore: state.outs,
+      batterId: null,
+      pitchSequence: [],
+    });
+
+    // Get current pitcher
+    const isAwayBatting = state.halfInning === 'top';
+    const pitcherLineup = isAwayBatting ? game.homeLineup : game.awayLineup;
+    const pitcherSlot = pitcherLineup.startingOrder.find((_, i) => {
+      const defSlot = pitcherLineup.startingOrder[i];
+      return defSlot.position === 1;
+    });
+    const pitcherId = pitcherSlot?.playerId ?? '';
+
+    const mvs: RunnerMovement[] = successful
+      ? [{ runnerId: selectedRunner, from: runner.base, to: 'out' }]
+      : [];
+
+    const event: PlayEvent = {
+      ...makeCommon(),
+      runnerMovements: mvs,
+      type: 'pickoff_attempt',
+      pitcherId,
+      runnerId: selectedRunner,
+      base: pickoffBase,
+      successful,
+    };
+    onEvent(event);
+    reset();
+  }, [selectedRunner, pickoffBase, runnersOnBase, state, game, onEvent, reset]);
+
+  // Mound visit warning
+  const isAwayBatting = state.halfInning === 'top';
+  const defensiveVisits = isAwayBatting ? state.homeMoundVisits : state.awayMoundVisits;
+  const visitLimit = game.rules.moundVisitsPerGame;
+  const visitWarning = visitLimit !== null && defensiveVisits >= visitLimit - 1 && defensiveVisits < visitLimit;
+  const visitLimitReached = visitLimit !== null && defensiveVisits >= visitLimit;
 
   if (!action) {
     return (
@@ -124,6 +215,13 @@ export function BetweenABPanel({ state, players, onEvent }: BetweenABPanelProps)
             <button onClick={() => setAction('balk')}>Balk</button>
           </>
         )}
+        {hasRunners && (
+          <button onClick={() => setAction('pickoff')}>Pickoff</button>
+        )}
+        <button onClick={() => setAction('mound_visit')} style={visitWarning ? { color: 'orange' } : visitLimitReached ? { color: 'red' } : undefined}>
+          Mound Visit{visitLimit !== null ? ` (${defensiveVisits}/${visitLimit})` : ''}
+        </button>
+        <button onClick={() => setAction('timeout')}>Timeout</button>
       </div>
     );
   }
@@ -165,18 +263,97 @@ export function BetweenABPanel({ state, players, onEvent }: BetweenABPanelProps)
   }
 
   // WP / PB / Balk — just confirm  
-  return (
-    <div className="runner-panel">
-      <span className="outcome-section-label">
-        {action === 'wild_pitch' ? 'Wild Pitch' : action === 'passed_ball' ? 'Passed Ball' : 'Balk'}
-        {' — runners advance one base'}
-      </span>
-      <div className="action-bar">
-        <button onClick={reset}>Cancel</button>
-        <button className="primary" onClick={makeBaseEvent}>
-          Confirm ✓
-        </button>
+  if (action === 'wild_pitch' || action === 'passed_ball' || action === 'balk') {
+    return (
+      <div className="runner-panel">
+        <span className="outcome-section-label">
+          {action === 'wild_pitch' ? 'Wild Pitch' : action === 'passed_ball' ? 'Passed Ball' : 'Balk'}
+          {' — runners advance one base'}
+        </span>
+        <div className="action-bar">
+          <button onClick={reset}>Cancel</button>
+          <button className="primary" onClick={makeBaseEvent}>
+            Confirm ✓
+          </button>
+        </div>
       </div>
-    </div>
-  );
+    );
+  }
+
+  // Mound visit — confirm
+  if (action === 'mound_visit') {
+    return (
+      <div className="runner-panel">
+        <span className="outcome-section-label">
+          Mound Visit — {isAwayBatting ? game.homeTeamName : game.awayTeamName} (defensive)
+        </span>
+        {visitLimitReached && (
+          <span style={{ color: 'red', fontSize: 12 }}>⚠ Mound visit limit reached!</span>
+        )}
+        {visitWarning && (
+          <span style={{ color: 'orange', fontSize: 12 }}>⚠ Last mound visit before limit</span>
+        )}
+        <div className="action-bar">
+          <button onClick={reset}>Cancel</button>
+          <button className="primary" onClick={makeBaseEvent}>
+            Record Visit ✓
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // Timeout — confirm
+  if (action === 'timeout') {
+    return (
+      <div className="runner-panel">
+        <span className="outcome-section-label">Timeout</span>
+        <div className="action-bar">
+          <button onClick={reset}>Cancel</button>
+          <button className="primary" onClick={makeBaseEvent}>
+            Record Timeout ✓
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // Pickoff — select runner, then success/failure
+  if (action === 'pickoff') {
+    return (
+      <div className="runner-panel">
+        <span className="outcome-section-label">Pickoff Attempt — Select runner</span>
+        {runnersOnBase.map(r => (
+          <button
+            key={r.id}
+            className={`outcome-btn${selectedRunner === r.id ? ' selected' : ''}`}
+            onClick={() => {
+              setSelectedRunner(r.id);
+              setPickoffBase(r.base);
+            }}
+          >
+            {getPlayerName(r.id)} ({r.base === 'first' ? '1B' : r.base === 'second' ? '2B' : '3B'})
+          </button>
+        ))}
+        {selectedRunner && (
+          <div className="action-bar">
+            <button onClick={reset}>Cancel</button>
+            <button onClick={() => handlePickoff(false)}>
+              Safe (Attempt)
+            </button>
+            <button className="primary" onClick={() => handlePickoff(true)}>
+              Out! ✓
+            </button>
+          </div>
+        )}
+        {!selectedRunner && (
+          <div className="action-bar">
+            <button onClick={reset}>Cancel</button>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  return null;
 }

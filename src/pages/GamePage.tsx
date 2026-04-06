@@ -3,6 +3,7 @@ import { useParams, Link, useNavigate } from 'react-router-dom'
 import { db } from '../db'
 import type { Game } from '../models/game'
 import type { Player } from '../models/player'
+import { displayPlayerName } from '../models/player'
 import type { Id, Count } from '../models/common'
 import type { PlayEvent } from '../models/play'
 import { deriveGameState, undoLastEvent } from '../engine/gameEngine'
@@ -162,8 +163,7 @@ export function GamePage() {
   const pitcherDisplay = currentPitcher ? (() => {
     const p = players.get(currentPitcher)
     if (!p) return pitchingTeamName
-    const num = p.number != null ? `#${p.number} ` : ''
-    return `${num}${p.firstName} ${p.lastName}`
+    return displayPlayerName(p)
   })() : pitchingTeamName
 
   return (
@@ -285,8 +285,9 @@ export function GamePage() {
             />
           )}
 
-          {/* Between-AB events (SB, CS, WP, PB, Balk) */}
+          {/* Between-AB events (SB, CS, WP, PB, Balk, Mound Visit, Timeout, Pickoff) */}
           <BetweenABPanel
+            game={game}
             state={state}
             players={players}
             onEvent={handleEvent}
@@ -294,6 +295,7 @@ export function GamePage() {
 
           {/* At-bat panel (pitches → outcome → runners) */}
           <AtBatPanel
+            key={`${state.inning}-${state.halfInning}-${state.awayBatterIndex}-${state.homeBatterIndex}`}
             game={game}
             state={state}
             players={players}
