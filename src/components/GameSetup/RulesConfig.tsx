@@ -87,6 +87,32 @@ export function RulesConfig({ rules, onChange }: RulesConfigProps) {
           />
         </div>
       )}
+      <div className="rule-row">
+        <label>Mound visits per game (0 = unlimited)</label>
+        <input
+          type="number"
+          min={0}
+          max={20}
+          value={rules.moundVisitsPerGame ?? 0}
+          onChange={e => {
+            const v = parseInt(e.target.value);
+            update({ moundVisitsPerGame: v > 0 ? v : null });
+          }}
+        />
+      </div>
+      <div className="rule-row">
+        <label>Timeouts per game (0 = unlimited)</label>
+        <input
+          type="number"
+          min={0}
+          max={20}
+          value={rules.timeoutsPerGame ?? 0}
+          onChange={e => {
+            const v = parseInt(e.target.value);
+            update({ timeoutsPerGame: v > 0 ? v : null });
+          }}
+        />
+      </div>
     </div>
   );
 }
