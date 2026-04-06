@@ -1,11 +1,13 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { db } from '../db'
+import { exportTeam, downloadTeamJson, importTeamFile } from '../db/exportImport'
 import type { Team } from '../models/team'
 import type { Player } from '../models/player'
 import type { PositionNumber } from '../models/common'
 import { POSITION_LABELS } from '../models/common'
 import { generateId } from '../utils/id'
 import { ConfirmDialog } from '../components/Scoring/UndoButton'
+import '../components/GameSetup/GameSetup.css'
 
 export function TeamsPage() {
   const [teams, setTeams] = useState<Team[]>([])
@@ -22,6 +24,15 @@ export function TeamsPage() {
   const [newLast, setNewLast] = useState('')
   const [newNumber, setNewNumber] = useState('')
   const [newPos, setNewPos] = useState<PositionNumber>(1)
+  const [importMsg, setImportMsg] = useState<string | null>(null)
+  const importFileRef = useRef<HTMLInputElement>(null)
+
+  // Edit player state
+  const [editingPlayer, setEditingPlayer] = useState<string | null>(null)
+  const [editFirst, setEditFirst] = useState('')
+  const [editLast, setEditLast] = useState('')
+  const [editNumber, setEditNumber] = useState('')
+  const [editPos, setEditPos] = useState<PositionNumber>(1)
 
   const loadTeams = () => db.teams.orderBy('name').toArray().then(setTeams)
 
@@ -52,12 +63,16 @@ export function TeamsPage() {
   }
 
   const addPlayer = async () => {
-    if (!selectedTeam || (!newFirst.trim() && !newLast.trim())) return
+    if (!selectedTeam) return
+    const first = newFirst.trim()
+    const last = newLast.trim()
+    const num = newNumber.trim()
+    if (!num && !first && !last) return // need at least # or a name
     const player: Player = {
       id: generateId(),
-      firstName: newFirst.trim(),
-      lastName: newLast.trim(),
-      number: newNumber ? parseInt(newNumber) : undefined,
+      firstName: first || undefined,
+      lastName: last || undefined,
+      number: num ? parseInt(num) : undefined,
       positions: [newPos],
       teamId: selectedTeam.id,
     }
@@ -86,6 +101,31 @@ export function TeamsPage() {
     setPlayers(prev => prev.filter(p => p.id !== playerId))
   }
 
+  const startEditPlayer = (p: Player) => {
+    setEditingPlayer(p.id)
+    setEditFirst(p.firstName ?? '')
+    setEditLast(p.lastName ?? '')
+    setEditNumber(p.number != null ? String(p.number) : '')
+    setEditPos(p.positions[0] ?? 1)
+  }
+
+  const saveEditPlayer = async () => {
+    if (!editingPlayer) return
+    const updates: Partial<Player> = {
+      firstName: editFirst.trim() || undefined,
+      lastName: editLast.trim() || undefined,
+      number: editNumber.trim() ? parseInt(editNumber) : undefined,
+      positions: [editPos],
+    }
+    await db.players.update(editingPlayer, updates)
+    setPlayers(prev => prev.map(p => p.id === editingPlayer ? { ...p, ...updates } : p))
+    setEditingPlayer(null)
+  }
+
+  const cancelEditPlayer = () => {
+    setEditingPlayer(null)
+  }
+
   const renameTeam = async () => {
     if (!selectedTeam || !editName.trim()) return
     await db.teams.update(selectedTeam.id, {
@@ -104,6 +144,26 @@ export function TeamsPage() {
     if (selectedTeam?.id === team.id) setSelectedTeam(null)
     setConfirmDelete(null)
     await loadTeams()
+  }
+
+  const handleExportTeam = async (team: Team) => {
+    const data = await exportTeam(team.id)
+    const safeName = team.name.replace(/[^a-zA-Z0-9_-]/g, '_')
+    downloadTeamJson(data, `${safeName}-roster.json`)
+  }
+
+  const handleImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    try {
+      const result = await importTeamFile(file)
+      setImportMsg(`Imported "${result.teamName}" with ${result.playerCount} players`)
+      await loadTeams()
+    } catch (err) {
+      setImportMsg(`Import failed: ${err instanceof Error ? err.message : 'Unknown error'}`)
+    }
+    // Reset input so the same file can be re-selected
+    if (importFileRef.current) importFileRef.current.value = ''
   }
 
   if (selectedTeam) {
@@ -128,13 +188,19 @@ export function TeamsPage() {
             <button onClick={() => setEditingName(false)} style={{ minHeight: 'var(--tap-target)' }}>✕</button>
           </div>
         ) : (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <h2 style={{ flex: 1 }}>{selectedTeam.name}</h2>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <h2 style={{ flex: 1, minWidth: 0 }}>{selectedTeam.name}</h2>
             <button
               onClick={() => { setEditName(selectedTeam.name); setEditingName(true); }}
               style={{ fontSize: 13, padding: '4px 10px' }}
             >
               ✏️ Edit
+            </button>
+            <button
+              onClick={() => handleExportTeam(selectedTeam)}
+              style={{ fontSize: 13, padding: '4px 10px' }}
+            >
+              📤 Export
             </button>
             <button
               onClick={() => setConfirmDelete(selectedTeam)}
@@ -147,37 +213,67 @@ export function TeamsPage() {
 
         <p>Roster · {players.length} players</p>
 
-        <div className="roster-list" style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
-          {/* Column headers */}
-          <div style={{ display: 'grid', gridTemplateColumns: '48px 1fr 1fr 56px 28px', gap: 6, padding: '6px 10px', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--color-text-muted)', borderBottom: '1px solid var(--color-border)' }}>
-            <span>No.</span>
-            <span>First</span>
-            <span>Last</span>
-            <span>Pos.</span>
-            <span></span>
-          </div>
+        <div className="roster-list">
           {players.map(p => (
-            <div key={p.id} style={{ display: 'grid', gridTemplateColumns: '48px 1fr 1fr 56px 28px', gap: 6, alignItems: 'center', padding: '8px 10px', borderBottom: '1px solid var(--color-border)' }}>
-              <span style={{ color: 'var(--color-primary)', fontWeight: 700, fontSize: 14 }}>
-                {p.number ?? '—'}
-              </span>
-              <span style={{ fontSize: 14 }}>{p.firstName}</span>
-              <span style={{ fontSize: 14 }}>{p.lastName}</span>
-              <span style={{ color: 'var(--color-text-muted)', fontSize: 13 }}>
-                {p.positions.map(pos => POSITION_LABELS[pos]).join('/')}
-              </span>
-              <button
-                onClick={() => removePlayer(p.id)}
-                style={{ minHeight: 28, minWidth: 28, padding: 0, color: 'var(--color-error)', background: 'none' }}
-              >
-                ×
-              </button>
-            </div>
+            editingPlayer === p.id ? (
+              <div key={p.id} className="add-player-row" style={{ padding: '6px 0' }}>
+                <input
+                  type="text"
+                  placeholder="#"
+                  value={editNumber}
+                  onChange={e => setEditNumber(e.target.value.replace(/\D/g, ''))}
+                  inputMode="numeric"
+                  maxLength={3}
+                />
+                <input
+                  type="text"
+                  placeholder="First"
+                  value={editFirst}
+                  onChange={e => setEditFirst(e.target.value)}
+                  autoFocus
+                />
+                <input
+                  type="text"
+                  placeholder="Last"
+                  value={editLast}
+                  onChange={e => setEditLast(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && saveEditPlayer()}
+                />
+                <select
+                  value={editPos}
+                  onChange={e => setEditPos(parseInt(e.target.value) as PositionNumber)}
+                >
+                  {(Object.entries(POSITION_LABELS) as [string, string][]).map(([num, lbl]) => (
+                    <option key={num} value={num}>{lbl}</option>
+                  ))}
+                </select>
+                <button onClick={saveEditPlayer} className="primary" style={{ minHeight: 'var(--tap-target)', minWidth: 'var(--tap-target)', padding: 0, fontSize: 16 }}>✓</button>
+                <button onClick={cancelEditPlayer} style={{ minHeight: 'var(--tap-target)', minWidth: 'var(--tap-target)', padding: 0, fontSize: 16 }}>✕</button>
+              </div>
+            ) : (
+              <div key={p.id} className="roster-item" onClick={() => startEditPlayer(p)} style={{ cursor: 'pointer' }}>
+                <span className="player-number">
+                  {p.number ?? '—'}
+                </span>
+                <span className="player-name" style={{ flex: 1, minWidth: 0 }}>
+                  {[p.firstName, p.lastName].filter(Boolean).join(' ') || '—'}
+                </span>
+                <span className="player-pos">
+                  {p.positions.map(pos => POSITION_LABELS[pos]).join('/')}
+                </span>
+                <button
+                  onClick={e => { e.stopPropagation(); removePlayer(p.id); }}
+                  className="remove-btn"
+                >
+                  ×
+                </button>
+              </div>
+            )
           ))}
         </div>
 
-        {/* Add player form — separate fields */}
-        <div style={{ display: 'grid', gridTemplateColumns: '48px 1fr 1fr 56px 36px', gap: 6, alignItems: 'center' }}>
+        {/* Add player form */}
+        <div className="add-player-row">
           <input
             type="text"
             placeholder="#"
@@ -185,14 +281,12 @@ export function TeamsPage() {
             onChange={e => setNewNumber(e.target.value.replace(/\D/g, ''))}
             inputMode="numeric"
             maxLength={3}
-            style={{ padding: '8px', borderRadius: 'var(--radius)', border: '1px solid var(--color-border)', background: 'var(--color-bg)', color: 'var(--color-text)', fontSize: 14, minHeight: 'var(--tap-target)' }}
           />
           <input
             type="text"
             placeholder="First"
             value={newFirst}
             onChange={e => setNewFirst(e.target.value)}
-            style={{ padding: '8px', borderRadius: 'var(--radius)', border: '1px solid var(--color-border)', background: 'var(--color-bg)', color: 'var(--color-text)', fontSize: 14, minHeight: 'var(--tap-target)' }}
           />
           <input
             type="text"
@@ -200,18 +294,16 @@ export function TeamsPage() {
             value={newLast}
             onChange={e => setNewLast(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && addPlayer()}
-            style={{ padding: '8px', borderRadius: 'var(--radius)', border: '1px solid var(--color-border)', background: 'var(--color-bg)', color: 'var(--color-text)', fontSize: 14, minHeight: 'var(--tap-target)' }}
           />
           <select
             value={newPos}
             onChange={e => setNewPos(parseInt(e.target.value) as PositionNumber)}
-            style={{ padding: '4px 6px', borderRadius: 'var(--radius)', border: '1px solid var(--color-border)', background: 'var(--color-bg)', color: 'var(--color-text)', fontSize: 13, minHeight: 'var(--tap-target)' }}
           >
             {(Object.entries(POSITION_LABELS) as [string, string][]).map(([num, lbl]) => (
               <option key={num} value={num}>{lbl}</option>
             ))}
           </select>
-          <button onClick={addPlayer} className="primary" style={{ minHeight: 'var(--tap-target)', padding: 0, fontSize: 20 }}>+</button>
+          <button onClick={addPlayer} className="primary">+</button>
         </div>
 
         {confirmDelete && (
@@ -235,6 +327,24 @@ export function TeamsPage() {
       <button className="primary" style={{ marginTop: 8 }} onClick={() => setShowNewForm(!showNewForm)}>
         + New Team
       </button>
+
+      <button style={{ marginTop: 4 }} onClick={() => importFileRef.current?.click()}>
+        📥 Import Roster
+      </button>
+      <input
+        ref={importFileRef}
+        type="file"
+        accept=".json"
+        style={{ display: 'none' }}
+        onChange={handleImportFile}
+      />
+
+      {importMsg && (
+        <div style={{ padding: '8px 12px', borderRadius: 'var(--radius)', background: 'var(--color-surface)', border: '1px solid var(--color-border)', fontSize: 13, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span>{importMsg}</span>
+          <button onClick={() => setImportMsg(null)} style={{ background: 'none', border: 'none', color: 'var(--color-text-muted)', cursor: 'pointer' }}>✕</button>
+        </div>
+      )}
 
       {showNewForm && (
         <div style={{ display: 'flex', gap: 8 }}>

@@ -1,7 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { db } from '../../db';
+import { importTeamFile } from '../../db/exportImport';
 import type { Team } from '../../models/team';
 import type { Player } from '../../models/player';
+import { displayPlayerName } from '../../models/player';
 import type { PositionNumber } from '../../models/common';
 import { POSITION_LABELS } from '../../models/common';
 import { generateId } from '../../utils/id';
@@ -24,6 +26,7 @@ export function TeamSetup({ label, teamId, onTeamReady }: TeamSetupProps) {
   const [newLast, setNewLast] = useState('');
   const [newNumber, setNewNumber] = useState('');
   const [newPos, setNewPos] = useState<PositionNumber>(1);
+  const importFileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     db.teams.orderBy('name').toArray().then(setExistingTeams);
@@ -46,16 +49,17 @@ export function TeamSetup({ label, teamId, onTeamReady }: TeamSetupProps) {
   const addPlayer = () => {
     const first = newFirst.trim();
     const last = newLast.trim();
-    if (!first && !last) return;
+    const num = newNumber.trim();
+    if (!num && !first && !last) return; // need at least # or a name
 
     const tId = selectedTeamId || generateId();
     if (!selectedTeamId) setSelectedTeamId(tId);
 
     const player: Player = {
       id: generateId(),
-      firstName: first,
-      lastName: last,
-      number: newNumber ? parseInt(newNumber) : undefined,
+      firstName: first || undefined,
+      lastName: last || undefined,
+      number: num ? parseInt(num) : undefined,
       positions: [newPos],
       teamId: tId,
     };
@@ -84,6 +88,25 @@ export function TeamSetup({ label, teamId, onTeamReady }: TeamSetupProps) {
     onTeamReady(tId, name, players);
   };
 
+  const handleImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const result = await importTeamFile(file);
+      // Reload teams list and select the imported team
+      const teams = await db.teams.orderBy('name').toArray();
+      setExistingTeams(teams);
+      const imported = teams.find(t => t.name === result.teamName);
+      if (imported) {
+        setMode('pick');
+        setSelectedTeamId(imported.id);
+      }
+    } catch {
+      // Silently fail — could add error UI later
+    }
+    if (importFileRef.current) importFileRef.current.value = '';
+  };
+
   return (
     <div className="team-section">
       <span className="section-label">{label}</span>
@@ -109,6 +132,19 @@ export function TeamSetup({ label, teamId, onTeamReady }: TeamSetupProps) {
         >
           Existing ({existingTeams.length})
         </button>
+        <button
+          type="button"
+          onClick={() => importFileRef.current?.click()}
+        >
+          📥 Import
+        </button>
+        <input
+          ref={importFileRef}
+          type="file"
+          accept=".json"
+          style={{ display: 'none' }}
+          onChange={handleImportFile}
+        />
       </div>
 
       {mode === 'pick' && (
@@ -147,7 +183,7 @@ export function TeamSetup({ label, teamId, onTeamReady }: TeamSetupProps) {
             {players.map(p => (
               <div key={p.id} className="roster-item">
                 <span className="player-number">#{p.number ?? '—'}</span>
-                <span className="player-name">{p.firstName} {p.lastName}</span>
+                <span className="player-name">{displayPlayerName(p)}</span>
                 <span className="player-pos">
                   {p.positions.map(pos => POSITION_LABELS[pos]).join('/')}
                 </span>
@@ -155,7 +191,7 @@ export function TeamSetup({ label, teamId, onTeamReady }: TeamSetupProps) {
                   type="button"
                   className="remove-btn"
                   onClick={() => removePlayer(p.id)}
-                  aria-label={`Remove ${p.firstName} ${p.lastName}`}
+                  aria-label={`Remove ${displayPlayerName(p)}`}
                 >
                   ×
                 </button>
@@ -174,13 +210,16 @@ export function TeamSetup({ label, teamId, onTeamReady }: TeamSetupProps) {
             />
             <input
               type="text"
-              placeholder="First Last"
-              value={newFirst ? `${newFirst} ${newLast}` : ''}
-              onChange={e => {
-                const parts = e.target.value.split(' ');
-                setNewFirst(parts[0] ?? '');
-                setNewLast(parts.slice(1).join(' '));
-              }}
+              placeholder="First"
+              value={newFirst}
+              onChange={e => setNewFirst(e.target.value)}
+            />
+            <input
+              type="text"
+              placeholder="Last"
+              value={newLast}
+              onChange={e => setNewLast(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && addPlayer()}
             />
             <select
               value={newPos}
