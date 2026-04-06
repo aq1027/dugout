@@ -3,7 +3,8 @@ import type { Id, Base, PitchResult, PositionNumber } from './common';
 // ─── Pitch ────────────────────────────────────────────────
 export interface Pitch {
   result: PitchResult;
-  /** Optional velocity, location, etc. for future use */
+  /** True if this pitch call was overturned (e.g., ABS challenge) */
+  overturned?: boolean;
 }
 
 // ─── Baserunner movement ──────────────────────────────────
@@ -30,7 +31,10 @@ export type PlayEvent =
   | PassedBallEvent
   | BalkEvent
   | SubstitutionEvent
-  | DroppedThirdStrikeEvent;
+  | DroppedThirdStrikeEvent
+  | MoundVisitEvent
+  | TimeoutEvent
+  | PickoffAttemptEvent;
 
 interface BasePlayEvent {
   id: Id;
@@ -57,6 +61,8 @@ export interface HitEvent extends BasePlayEvent {
   fieldLocation?: string;
   /** Runs batted in */
   rbi: number;
+  /** Error on the play (fielder committed error allowing extra advancement) */
+  error?: { fielderPosition: PositionNumber; description?: string };
 }
 
 export interface OutEvent extends BasePlayEvent {
@@ -140,6 +146,26 @@ export interface SubstitutionEvent extends BasePlayEvent {
 export interface DroppedThirdStrikeEvent extends BasePlayEvent {
   type: 'dropped_third_strike';
   safe: boolean;
+}
+
+export interface MoundVisitEvent extends BasePlayEvent {
+  type: 'mound_visit';
+  teamId: Id;
+  visitNumber: number;
+}
+
+export interface TimeoutEvent extends BasePlayEvent {
+  type: 'timeout';
+  teamId: Id;
+  timeoutType: 'offensive' | 'defensive';
+}
+
+export interface PickoffAttemptEvent extends BasePlayEvent {
+  type: 'pickoff_attempt';
+  pitcherId: Id;
+  runnerId: Id;
+  base: Base;
+  successful: boolean;
 }
 
 // ─── Plate Appearance (derived, not stored) ───────────────

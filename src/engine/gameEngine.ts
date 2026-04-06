@@ -25,6 +25,10 @@ export function deriveGameState(game: Game): DerivedGameState {
     isGameOver: false,
     awayLineScore: [],
     homeLineScore: [],
+    awayMoundVisits: 0,
+    homeMoundVisits: 0,
+    awayTimeouts: 0,
+    homeTimeouts: 0,
   };
 
   for (const event of game.events) {
@@ -69,6 +73,28 @@ function applyEvent(state: DerivedGameState, event: PlayEvent, game: Game): void
   if (event.type === 'error') {
     if (isAwayBatting) state.homeErrors++; // fielding team gets the error
     else state.awayErrors++;
+  }
+  // Also track errors on hit plays (e.g., single + E9 allows extra advancement)
+  if (event.type === 'hit' && event.error) {
+    if (isAwayBatting) state.homeErrors++;
+    else state.awayErrors++;
+  }
+
+  // Track mound visits
+  if (event.type === 'mound_visit') {
+    if (event.teamId === game.awayTeamId) state.awayMoundVisits++;
+    else state.homeMoundVisits++;
+  }
+
+  // Track timeouts
+  if (event.type === 'timeout') {
+    if (event.teamId === game.awayTeamId) state.awayTimeouts++;
+    else state.homeTimeouts++;
+  }
+
+  // Pickoff: successful = runner out
+  if (event.type === 'pickoff_attempt' && event.successful) {
+    // Outs already counted via getOutsFromEvent
   }
 
   // Apply base state from runner movements
@@ -142,6 +168,8 @@ function getOutsFromEvent(event: PlayEvent): number {
       return 1;
     case 'caught_stealing':
       return 1;
+    case 'pickoff_attempt':
+      return event.successful ? 1 : 0;
     case 'dropped_third_strike':
       return event.safe ? 0 : 1;
     default: {
@@ -169,6 +197,9 @@ function isAtBatComplete(event: PlayEvent): boolean {
     case 'passed_ball':
     case 'balk':
     case 'substitution':
+    case 'mound_visit':
+    case 'timeout':
+    case 'pickoff_attempt':
       return false;
     default:
       return false;

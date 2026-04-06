@@ -33,7 +33,9 @@ export type PitchResult =
   | 'strike_swinging'
   | 'strike_looking'
   | 'foul'
-  | 'in_play';
+  | 'in_play'
+  | 'pitch_clock_ball'
+  | 'pitch_clock_strike';
 
 /** Count state */
 export interface Count {
