@@ -3,6 +3,7 @@ import type { Id, PositionNumber } from '../../models/common';
 import { POSITION_LABELS } from '../../models/common';
 import type { Game, DerivedGameState } from '../../models/game';
 import type { Player } from '../../models/player';
+import { displayPlayerName } from '../../models/player';
 import type { LineupSlot, Substitution } from '../../models/lineup';
 import type { PlayEvent } from '../../models/play';
 import { generateId } from '../../utils/id';
@@ -91,13 +92,11 @@ export function LineupPanel({ game, state, players, teamPlayers, isAway, onGameU
   const pName = (id: Id) => {
     const p = players.get(id);
     if (!p) return '??';
-    const num = p.number != null ? `#${p.number} ` : '';
-    return `${num}${p.firstName} ${p.lastName}`;
+    return displayPlayerName(p);
   };
 
   const pShort = (p: Player) => {
-    const num = p.number != null ? `#${p.number} ` : '';
-    return `${num}${p.firstName} ${p.lastName}`;
+    return displayPlayerName(p);
   };
 
   const subTypeLabel = (t: Substitution['type']) => {

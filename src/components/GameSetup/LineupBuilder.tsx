@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import type { Player } from '../../models/player';
+import { displayPlayerName } from '../../models/player';
 import type { LineupSlot } from '../../models/lineup';
 import type { PositionNumber } from '../../models/common';
 import { POSITION_LABELS } from '../../models/common';
@@ -196,7 +197,7 @@ export function LineupBuilder({
   const playerLabel = (id: string) => {
     const p = players.find(pl => pl.id === id);
     if (!p) return 'Unknown';
-    return `${p.number != null ? '#' + p.number + ' ' : ''}${p.firstName} ${p.lastName}`;
+    return displayPlayerName(p);
   };
 
   const filledCount = slots.filter(s => s.playerId).length;
@@ -218,7 +219,7 @@ export function LineupBuilder({
             .filter(p => p.id === pitcherId || !assignedBattingIds.has(p.id))
             .map(p => (
               <option key={p.id} value={p.id}>
-                {p.number != null ? `#${p.number} ` : ''}{p.firstName} {p.lastName}
+                {displayPlayerName(p)}
               </option>
             ))}
         </select>
@@ -302,7 +303,7 @@ export function LineupBuilder({
                     .filter(p => !assignedBattingIds.has(p.id))
                     .map(p => (
                       <option key={p.id} value={p.id}>
-                        {p.number != null ? `#${p.number} ` : ''}{p.firstName} {p.lastName}
+                        {displayPlayerName(p)}
                         {' '}({p.positions.map(pos => POSITION_LABELS[pos as PositionNumber]).join('/')})
                       </option>
                     ))}

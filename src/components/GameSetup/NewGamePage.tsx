@@ -1,11 +1,12 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { db } from '../../db';
-import { getRules } from '../../engine/rules';
+import { getPresetRules, type LeaguePreset } from '../../engine/rules';
 import type { SportType, PositionNumber } from '../../models/common';
 import { POSITION_LABELS } from '../../models/common';
 import type { GameRules, Game } from '../../models/game';
 import type { Player } from '../../models/player';
+import { displayPlayerName } from '../../models/player';
 import type { LineupSlot } from '../../models/lineup';
 import { generateId } from '../../utils/id';
 import { StepIndicator } from './StepIndicator';
@@ -32,17 +33,28 @@ export function NewGamePage() {
 
   // Step 0: Sport & Rules
   const [sport, setSport] = useState<SportType>('baseball');
-  const [rules, setRules] = useState<GameRules>(getRules('baseball'));
+  const [preset, setPreset] = useState<LeaguePreset>('mlb');
+  const [rules, setRules] = useState<GameRules>(getPresetRules('mlb'));
   const [location, setLocation] = useState('');
 
   // Step 1: Teams
   const [away, setAway] = useState<TeamState>(emptyTeam());
   const [home, setHome] = useState<TeamState>(emptyTeam());
 
-  // Handle sport change — update rules to preset
+  // Handle sport change — update rules to default preset for that sport
   const handleSportChange = (s: SportType) => {
     setSport(s);
-    setRules(getRules(s));
+    const defaultPreset: LeaguePreset = s === 'baseball' ? 'mlb' : 'ncaa_softball';
+    setPreset(defaultPreset);
+    setRules(getPresetRules(defaultPreset));
+  };
+
+  // Handle preset change — update rules
+  const handlePresetChange = (p: LeaguePreset) => {
+    setPreset(p);
+    if (p !== 'custom') {
+      setRules(getPresetRules(p));
+    }
   };
 
   // Validation per step
@@ -131,9 +143,18 @@ export function NewGamePage() {
       {/* Step 0: Sport & Rules */}
       {step === 0 && (
         <>
-          <SportSelector value={sport} onChange={handleSportChange} />
-          <h3>Rules</h3>
-          <RulesConfig rules={rules} onChange={setRules} />
+          <SportSelector value={sport} onChange={handleSportChange} preset={preset} onPresetChange={handlePresetChange} />
+          {preset === 'custom' ? (
+            <>
+              <h3>Rules</h3>
+              <RulesConfig rules={rules} onChange={setRules} />
+            </>
+          ) : (
+            <details style={{ marginTop: 12 }}>
+              <summary style={{ cursor: 'pointer', fontWeight: 600 }}>Customize Rules</summary>
+              <RulesConfig rules={rules} onChange={(r) => { setPreset('custom'); setRules(r); }} />
+            </details>
+          )}
           <div className="quick-form">
             <input
               type="text"
@@ -210,8 +231,7 @@ export function NewGamePage() {
                   <div className="confirm-pitcher">
                     <span className="confirm-pitcher-label">P</span>
                     <span>
-                      {pitcherPlayer.number != null && `#${pitcherPlayer.number} `}
-                      {pitcherPlayer.firstName} {pitcherPlayer.lastName}
+                      {displayPlayerName(pitcherPlayer)}
                       {isTwoWay && <span className="two-way-badge">Two-Way</span>}
                     </span>
                   </div>
@@ -226,7 +246,7 @@ export function NewGamePage() {
                       return (
                         <tr key={i}>
                           <td className="order-num">{i + 1}</td>
-                          <td>{p ? `${p.number != null ? '#' + p.number + ' ' : ''}${p.firstName} ${p.lastName}` : '—'}</td>
+                          <td>{p ? displayPlayerName(p) : '—'}</td>
                           <td className="pos-cell">{POSITION_LABELS[slot.position as PositionNumber]}</td>
                         </tr>
                       );

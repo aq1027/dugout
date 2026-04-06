@@ -53,6 +53,12 @@ export interface GameRules {
   extraInningAutoRunner: boolean;
   /** Continuous batting order — entire roster bats */
   everyoneBats: boolean;
+  /** Max mound visits per team per game (null = unlimited) */
+  moundVisitsPerGame: number | null;
+  /** Max timeouts per team per game (null = unlimited) */
+  timeoutsPerGame: number | null;
+  /** Which league preset these rules are based on */
+  preset?: string;
 }
 
 // ─── Derived game state (computed from events, never stored) ────
@@ -85,4 +91,10 @@ export interface DerivedGameState {
   /** Line score per inning */
   awayLineScore: number[];
   homeLineScore: number[];
+  /** Mound visit counts */
+  awayMoundVisits: number;
+  homeMoundVisits: number;
+  /** Timeout counts */
+  awayTimeouts: number;
+  homeTimeouts: number;
 }

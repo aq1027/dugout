@@ -1,9 +1,10 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import type { Id, Base, PositionNumber, PitchResult } from '../../models/common';
 import { POSITION_LABELS } from '../../models/common';
 import type { Pitch, RunnerMovement, PlayEvent } from '../../models/play';
 import type { DerivedGameState, Game } from '../../models/game';
 import type { Player } from '../../models/player';
+import { displayPlayerName } from '../../models/player';
 import { generateId } from '../../utils/id';
 
 // ─── Types ──────────────────────────────────────
@@ -44,14 +45,13 @@ function getCurrentBatter(game: Game, state: DerivedGameState): { playerId: Id; 
 function getPlayerDisplay(players: Map<Id, Player>, playerId: Id): string {
   const p = players.get(playerId);
   if (!p) return 'Unknown';
-  const num = p.number != null ? `#${p.number} ` : '';
-  return `${num}${p.firstName} ${p.lastName}`;
+  return displayPlayerName(p);
 }
 
 function getPlayerShort(players: Map<Id, Player>, playerId: Id): string {
   const p = players.get(playerId);
   if (!p) return '??';
-  return p.lastName || p.firstName || '??';
+  return p.lastName || p.firstName || (p.number != null ? `#${p.number}` : '??');
 }
 
 function baseLabel(b: Base | 'batter'): string {
@@ -70,8 +70,15 @@ export function AtBatPanel({ game, state, players, onEvent, onCountChange, onPit
   const [notation, setNotation] = useState('');
   const [runners, setRunners] = useState<RunnerState[]>([]);
   const [sacrifice, setSacrifice] = useState<'fly' | 'bunt' | undefined>(undefined);
+  const [hitError, setHitError] = useState<{ fielderPosition: PositionNumber } | null>(null);
 
   const batter = getCurrentBatter(game, state);
+
+  // On mount (key change), sync parent with our initial 0-0 count
+  useEffect(() => {
+    onCountChange?.({ balls: 0, strikes: 0 });
+    onPitchCountChange?.(0);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const resetAtBat = useCallback(() => {
     setPhase('pitch');
@@ -81,9 +88,33 @@ export function AtBatPanel({ game, state, players, onEvent, onCountChange, onPit
     setNotation('');
     setRunners([]);
     setSacrifice(undefined);
+    setHitError(null);
     onCountChange?.({ balls: 0, strikes: 0 });
     onPitchCountChange?.(0);
   }, [onCountChange, onPitchCountChange]);
+
+  // ─── Pitch undo handler ────────────────────
+  const handleUndoPitch = useCallback(() => {
+    if (pitches.length === 0) return;
+    const newPitches = pitches.slice(0, -1);
+    setPitches(newPitches);
+    onPitchCountChange?.(newPitches.length);
+
+    // Recalculate count from scratch
+    let balls = 0;
+    let strikes = 0;
+    for (const p of newPitches) {
+      if (p.result === 'ball' || p.result === 'pitch_clock_ball') {
+        balls++;
+      } else if (p.result === 'strike_swinging' || p.result === 'strike_looking' || p.result === 'pitch_clock_strike') {
+        strikes++;
+      } else if (p.result === 'foul' && strikes < 2) {
+        strikes++;
+      }
+    }
+    setCount({ balls, strikes });
+    onCountChange?.({ balls, strikes });
+  }, [pitches, onCountChange, onPitchCountChange]);
 
   // ─── Build runner states for resolution ─────
   const buildRunnerStates = useCallback((outcomeVal: OutcomeType): RunnerState[] => {
@@ -131,7 +162,7 @@ export function AtBatPanel({ game, state, players, onEvent, onCountChange, onPit
     setPitches(newPitches);
     onPitchCountChange?.(newPitches.length);
 
-    if (result === 'ball') {
+    if (result === 'ball' || result === 'pitch_clock_ball') {
       const newBalls = count.balls + 1;
       if (newBalls >= 4) {
         // Walk — auto-resolve
@@ -167,7 +198,7 @@ export function AtBatPanel({ game, state, players, onEvent, onCountChange, onPit
       }
       setCount({ ...count, balls: newBalls });
       onCountChange?.({ ...count, balls: newBalls });
-    } else if (result === 'strike_swinging' || result === 'strike_looking') {
+    } else if (result === 'strike_swinging' || result === 'strike_looking' || result === 'pitch_clock_strike') {
       const newStrikes = count.strikes + 1;
       if (newStrikes >= 3) {
         // Strikeout
@@ -263,36 +294,8 @@ export function AtBatPanel({ game, state, players, onEvent, onCountChange, onPit
       return;
     }
 
-    // If bases are empty and it's a simple hit (not HR, already handled above), 
-    // auto-resolve the batter and skip runner resolution
-    const rs = buildRunnerStates(o);
-    const basesEmpty = !state.bases.first && !state.bases.second && !state.bases.third;
-    if (basesEmpty && o.kind === 'hit') {
-      // Only the batter, already placed by buildRunnerStates
-      const mvs: RunnerMovement[] = rs.map(r => ({
-        runnerId: r.runnerId,
-        from: r.from,
-        to: r.to!,
-      }));
-      const event: PlayEvent = {
-        id: generateId(),
-        timestamp: new Date().toISOString(),
-        inning: state.inning,
-        halfInning: state.halfInning,
-        outsBefore: state.outs,
-        batterId: batter.playerId,
-        pitchSequence: pitches,
-        runnerMovements: mvs,
-        type: 'hit',
-        hitType: o.hitType,
-        rbi: 0,
-      };
-      onEvent(event);
-      resetAtBat();
-      return;
-    }
-
     // Everything else goes to runner resolution
+    const rs = buildRunnerStates(o);
     setRunners(rs);
     setPhase('runners');
   }, [buildRunnerStates, state, batter.playerId, pitches, onEvent, resetAtBat]);
@@ -341,6 +344,7 @@ export function AtBatPanel({ game, state, players, onEvent, onCountChange, onPit
           type: 'hit',
           hitType: outcome.hitType,
           rbi,
+          ...(hitError ? { error: hitError } : {}),
         };
         break;
       case 'out':
@@ -410,7 +414,7 @@ export function AtBatPanel({ game, state, players, onEvent, onCountChange, onPit
 
     onEvent(event!);
     resetAtBat();
-  }, [outcome, runners, state, batter, pitches, notation, sacrifice, onEvent, resetAtBat]);
+  }, [outcome, runners, state, batter, pitches, notation, sacrifice, hitError, onEvent, resetAtBat]);
 
   // ─── Render: Batter info ────────────────────
   const renderBatterInfo = () => (
@@ -444,6 +448,19 @@ export function AtBatPanel({ game, state, players, onEvent, onCountChange, onPit
           HBP
         </button>
       </div>
+      <div className="pitch-buttons" style={{ marginTop: 6 }}>
+        <button className="pitch-btn ball" onClick={() => handlePitch('pitch_clock_ball')} style={{ fontSize: '0.8em' }}>
+          ⏱ Clock (Ball)
+        </button>
+        <button className="pitch-btn strike" onClick={() => handlePitch('pitch_clock_strike')} style={{ fontSize: '0.8em' }}>
+          ⏱ Clock (Strike)
+        </button>
+        {pitches.length > 0 && (
+          <button className="pitch-btn" onClick={handleUndoPitch} style={{ fontSize: '0.8em' }}>
+            ↩ Undo Pitch
+          </button>
+        )}
+      </div>
     </>
   );
 
@@ -476,7 +493,16 @@ export function AtBatPanel({ game, state, players, onEvent, onCountChange, onPit
           <button className="outcome-btn" onClick={() => handleOutcome({ kind: 'fielders_choice' })}>FC</button>
           <button className="outcome-btn" onClick={() => handleOutcome({ kind: 'error', position: 1 })}>Error</button>
           <button className="outcome-btn" onClick={() => handleOutcome({ kind: 'dropped_third_strike' })}>Drop K</button>
-          <button className="outcome-btn" onClick={() => { setPhase('pitch'); }}>← Back</button>
+          <button className="outcome-btn" onClick={() => {
+            // Remove the in_play pitch that was added when entering outcome phase
+            setPitches(prev => {
+              const updated = prev.filter((_, i) => i !== prev.length - 1 || prev[prev.length - 1].result !== 'in_play'
+                ? true : false);
+              onPitchCountChange?.(updated.length);
+              return updated;
+            });
+            setPhase('pitch');
+          }}>← Back</button>
         </div>
       </div>
     </div>
@@ -563,8 +589,29 @@ export function AtBatPanel({ game, state, players, onEvent, onCountChange, onPit
           );
         })}
 
+        {/* Error on play — only for hits */}
+        {outcome?.kind === 'hit' && (
+          <div className="notation-builder">
+            <span className="outcome-section-label">Error on play?</span>
+            <div className="position-grid">
+              {([1, 2, 3, 4, 5, 6, 7, 8, 9] as PositionNumber[]).map(pos => (
+                <button
+                  key={pos}
+                  className={`position-btn${hitError?.fielderPosition === pos ? ' selected' : ''}`}
+                  onClick={() => setHitError(hitError?.fielderPosition === pos ? null : { fielderPosition: pos })}
+                >
+                  {pos} {POSITION_LABELS[pos]}
+                </button>
+              ))}
+              {hitError && (
+                <button className="position-btn" onClick={() => setHitError(null)}>Clear</button>
+              )}
+            </div>
+          </div>
+        )}
+
         <div className="action-bar">
-          <button onClick={() => { setPhase('outcome'); setRunners([]); setNotation(''); setSacrifice(undefined); }}>
+          <button onClick={() => { setPhase('outcome'); setRunners([]); setNotation(''); setSacrifice(undefined); setHitError(null); }}>
             ← Back
           </button>
           <button className="primary" disabled={!allResolved} onClick={handleSubmitPlay}>

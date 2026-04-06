@@ -2,6 +2,7 @@ import type { Id } from '../../models/common';
 import { POSITION_LABELS } from '../../models/common';
 import type { Game, DerivedGameState } from '../../models/game';
 import type { Player } from '../../models/player';
+import { displayPlayerName } from '../../models/player';
 import type { PlayEvent } from '../../models/play';
 import type { Substitution } from '../../models/lineup';
 import { computeBattingStats } from '../../engine/statsEngine';
@@ -109,7 +110,9 @@ export function BoxScore({ game, players }: BoxScoreProps) {
               const stats = computeBattingStats(events, row.playerId);
               const p = players.get(row.playerId);
               const displayName = p
-                ? `${p.lastName}, ${p.firstName.charAt(0)}`
+                ? (p.lastName
+                    ? `${p.lastName}${p.firstName ? ', ' + p.firstName.charAt(0) : ''}`
+                    : displayPlayerName(p))
                 : '??';
 
               return (
