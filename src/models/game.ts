@@ -1,6 +1,6 @@
 import type { Id, SportType, BaseState, Count, InningHalfType } from './common';
 import type { Lineup } from './lineup';
-import type { PlayEvent } from './play';
+import type { PlayEvent, Pitch } from './play';
 
 /** Top-level game record persisted to IndexedDB */
 export interface Game {
@@ -97,4 +97,6 @@ export interface DerivedGameState {
   /** Timeout counts */
   awayTimeouts: number;
   homeTimeouts: number;
+  /** Pitch sequence for the current (incomplete) at-bat, used to restore state after undo */
+  currentAtBatPitches: Pitch[];
 }

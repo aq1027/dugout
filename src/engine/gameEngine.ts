@@ -1,6 +1,6 @@
 import type { BaseState } from '../models/common';
 import type { DerivedGameState, Game, GameRules } from '../models/game';
-import type { PlayEvent } from '../models/play';
+import type { PlayEvent, Pitch } from '../models/play';
 import { EMPTY_BASES } from '../models/common';
 
 /**
@@ -29,6 +29,7 @@ export function deriveGameState(game: Game): DerivedGameState {
     homeMoundVisits: 0,
     awayTimeouts: 0,
     homeTimeouts: 0,
+    currentAtBatPitches: [],
   };
 
   for (const event of game.events) {
@@ -103,11 +104,16 @@ function applyEvent(state: DerivedGameState, event: PlayEvent, game: Game): void
   // Check if this event ends the at-bat and advances the batter
   if (isAtBatComplete(event)) {
     state.count = { balls: 0, strikes: 0 };
+    state.currentAtBatPitches = [];
     if (isAwayBatting) {
       state.awayBatterIndex = (state.awayBatterIndex + 1) % getBattingOrderSize(rules, game.awayLineup.startingOrder.length);
     } else {
       state.homeBatterIndex = (state.homeBatterIndex + 1) % getBattingOrderSize(rules, game.homeLineup.startingOrder.length);
     }
+  } else if (event.pitchSequence && event.pitchSequence.length > 0) {
+    // Non-completing event with pitches (future: WP/PB during AB) — preserve sequence
+    state.currentAtBatPitches = [...event.pitchSequence];
+    state.count = countFromPitches(event.pitchSequence);
   }
 
   // Check for half-inning change (3 outs)
@@ -140,6 +146,7 @@ function advanceHalfInning(state: DerivedGameState, rules: GameRules): void {
   state.outs = 0;
   state.bases = { ...EMPTY_BASES };
   state.count = { balls: 0, strikes: 0 };
+  state.currentAtBatPitches = [];
 
   if (state.halfInning === 'top') {
     state.halfInning = 'bottom';
@@ -157,6 +164,23 @@ function advanceHalfInning(state: DerivedGameState, rules: GameRules): void {
       state.halfInning = 'top';
     }
   }
+}
+
+/** Derive balls/strikes count from a pitch sequence */
+function countFromPitches(pitches: Pitch[]): { balls: number; strikes: number } {
+  let balls = 0;
+  let strikes = 0;
+  for (const p of pitches) {
+    if (p.result === 'ball' || p.result === 'pitch_clock_ball') {
+      balls++;
+    } else if (p.result === 'strike_swinging' || p.result === 'strike_looking' || p.result === 'pitch_clock_strike') {
+      strikes++;
+    } else if (p.result === 'foul' && strikes < 2) {
+      strikes++;
+    }
+    // 'in_play' doesn't change the count
+  }
+  return { balls, strikes };
 }
 
 /** Calculate outs produced by an event */
