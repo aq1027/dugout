@@ -554,6 +554,16 @@ export function AtBatPanel({ game, state, players, onEvent, onCountChange, onPit
                 </button>
               </div>
             )}
+            {sacrifice === 'bunt' && (
+              <div className="helper-hint">
+                Batter out at 1B, runner(s) advance. If batter is safe, use FC instead.
+              </div>
+            )}
+            {sacrifice === 'fly' && (
+              <div className="helper-hint">
+                Batter out on fly ball, runner tags and scores. Requires {'<'} 2 outs.
+              </div>
+            )}
           </div>
         )}
 

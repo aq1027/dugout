@@ -344,6 +344,13 @@
   border-color: var(--color-primary);
 }
 
+.helper-hint {
+  font-size: 11px;
+  color: var(--color-text-secondary, #888);
+  font-style: italic;
+  padding: 2px 0;
+}
+
 /* ─── Out notation builder ───────────────────────── */
 .notation-builder {
   display: flex;

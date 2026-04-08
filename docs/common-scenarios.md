@@ -177,10 +177,13 @@ A sacrifice fly requires:
 
 ## 4. Sacrifice Bunt
 
-A sacrifice bunt requires:
-1. Batter bunts and is thrown out (batter is out)
+> **Official rule: MLB 9.08(a)–(c).** A sacrifice bunt has strict requirements. The batter MUST be out for it to be a sacrifice. If the batter reaches safely, the play is either a fielder's choice or a bunt single — never a sac bunt.
+
+A sacrifice bunt requires ALL of:
+1. Batter bunts and **is put out** at first base (or would have been except for an error)
 2. At least one runner advances
 3. Fewer than 2 outs BEFORE the play
+4. In the scorer's judgment, the batter was sacrificing (not bunting for a hit)
 
 | ID | Outs | Runners | Batter (deterministic) | Runner Defaults | User Can Override |
 |----|------|---------|----------------------|-----------------|-------------------|
@@ -194,11 +197,31 @@ A sacrifice bunt requires:
 - Batter `to` = `out` is **deterministic and locked**.
 - Runners default to advancing one base.
 
+### 4.1 When a Bunt is NOT a Sacrifice (MLB 9.08(b)–(c))
+
+These scenarios look like sacrifice bunts but are scored differently:
+
+| ID | Situation | What Happens | Scored As | Why |
+|----|-----------|-------------|-----------|-----|
+| BNT-FC1 | 0 out, 1B. Bunt, defense throws to 2B, gets runner. Batter safe at 1B. | Runner out at 2B, batter reaches 1B | **Fielder's Choice** | 9.08(c): a runner was put out attempting to advance → no sacrifice credit. Batter charged with AB. |
+| BNT-FC2 | 0 out, 1B+2B. Bunt, defense throws to 3B, gets 2B runner. Batter safe at 1B, 1B→2B. | Lead runner out at 3B, trailing runners advance | **Fielder's Choice** | Same — runner put out on the bunt. |
+| BNT-FC3 | 0 out, 1B+3B. Bunt, defense throws to 2B, gets 1B runner. Batter safe, 3B scores. | Runner from 1B out at 2B, 3B scores, batter at 1B | **Fielder's Choice** | Runner put out; batter reached because defense chose other runner. |
+| BNT-H1 | 0 out, 1B. Bunt, defense tries to get runner at 2B but fails. Batter safe at 1B. Runner safe at 2B. | Both safe. No outs. | **Bunt Single** (if ordinary effort wouldn't have gotten batter) | 9.08(b): unsuccessful attempt to get runner + batter wouldn't have been out → hit, not sacrifice. |
+| BNT-H2 | 0 out, 1B. Batter bunts for a hit (drag bunt). Safe at 1B. Runner advances. | Both safe. | **Bunt Single** | 9.08(a): scorer judges batter was bunting for a hit, not sacrificing. |
+
+**App guidance:**
+- If user selects an **out** outcome + "Sac Bunt": batter is auto-locked to out → this is correct sac bunt flow.
+- If the batter is safe and a runner is out: user should select **FC** (fielder's choice), not sac bunt.
+- If the batter is safe and nobody is out: user should select **1B** (single / bunt hit), not sac bunt.
+- The "Sac Bunt" toggle only appears on out outcomes, so the app naturally prevents misuse — the batter cannot be marked safe when sac bunt is selected.
+
 ---
 
 ## 5. Fielder's Choice
 
 Fielder's choice: the batter reaches base safely, but only because the defense chose to retire a different runner.
+
+### 5.1 Ground Ball Fielder's Choice
 
 | ID | Outs | Runners | Batter Default | Runner Defaults | Notes |
 |----|------|---------|---------------|-----------------|-------|
@@ -208,10 +231,21 @@ Fielder's choice: the batter reaches base safely, but only because the defense c
 | FC4 | 0 | 1B+3B | → 1B | 1B→Out, 3B: stay or score | |
 | FC5 | 0 | Loaded | → 1B | One runner out, others advance | User picks |
 
+### 5.2 Bunt Fielder's Choice
+
+When a batter bunts and reaches safely because the defense threw out a runner instead. See §4.1 (BNT-FC1–FC3) for the scoring rule (MLB 9.08(c)). These are handled identically to ground ball FC in the app:
+
+| ID | Outs | Runners | Batter Default | Runner Defaults | Notes |
+|----|------|---------|---------------|-----------------|-------|
+| FC-B1 | 0 | 1B | → 1B | 1B→Out (at 2B) | Bunt FC: defense chose runner over batter |
+| FC-B2 | 0 | 1B+2B | → 1B | Lead runner out, trailing advances | User picks which runner is out |
+| FC-B3 | 0 | 1B+3B | → 1B | 1B→Out, 3B: stay or score | 3B may score on the play |
+
 **App behavior:**
 - Batter defaults to `1B` (reached safely).
 - One runner defaults to `out`. User selects which runner and at which base.
 - Notation: user taps fielding positions (e.g., `6-4` for SS to 2B).
+- No sacrifice credit. At-bat charged. No hit credit.
 
 ---
 
