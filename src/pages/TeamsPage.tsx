@@ -34,6 +34,16 @@ export function TeamsPage() {
   const [editNumber, setEditNumber] = useState('')
   const [editPos, setEditPos] = useState<PositionNumber>(1)
 
+  // Duplicate jersey number warning helper
+  const getDupeWarning = (num: string, excludeId?: string): string | null => {
+    if (!num.trim()) return null
+    const parsed = parseInt(num)
+    const dupe = players.find(p => p.number === parsed && p.id !== excludeId)
+    if (!dupe) return null
+    const name = [dupe.firstName, dupe.lastName].filter(Boolean).join(' ') || 'another player'
+    return `#${parsed} is already assigned to ${name}`
+  }
+
   const loadTeams = () => db.teams.orderBy('name').toArray().then(setTeams)
 
   useEffect(() => { loadTeams() }, [])
@@ -152,6 +162,13 @@ export function TeamsPage() {
     downloadTeamJson(data, `${safeName}-roster.json`)
   }
 
+  const toggleMyTeam = async (team: Team) => {
+    const newVal = !team.isMine
+    await db.teams.update(team.id, { isMine: newVal, updatedAt: new Date().toISOString() })
+    if (selectedTeam?.id === team.id) setSelectedTeam({ ...selectedTeam, isMine: newVal })
+    await loadTeams()
+  }
+
   const handleImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
@@ -190,6 +207,13 @@ export function TeamsPage() {
         ) : (
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
             <h2 style={{ flex: 1, minWidth: 0 }}>{selectedTeam.name}</h2>
+            <button
+              onClick={() => toggleMyTeam(selectedTeam)}
+              style={{ fontSize: 16, padding: '4px 10px', color: selectedTeam.isMine ? '#eab308' : 'var(--color-text-muted)' }}
+              title={selectedTeam.isMine ? 'Unmark as my team' : 'Mark as my team'}
+            >
+              {selectedTeam.isMine ? '★' : '☆'}
+            </button>
             <button
               onClick={() => { setEditName(selectedTeam.name); setEditingName(true); }}
               style={{ fontSize: 13, padding: '4px 10px' }}
@@ -249,6 +273,11 @@ export function TeamsPage() {
                 </select>
                 <button onClick={saveEditPlayer} className="primary" style={{ minHeight: 'var(--tap-target)', minWidth: 'var(--tap-target)', padding: 0, fontSize: 16 }}>✓</button>
                 <button onClick={cancelEditPlayer} style={{ minHeight: 'var(--tap-target)', minWidth: 'var(--tap-target)', padding: 0, fontSize: 16 }}>✕</button>
+                {getDupeWarning(editNumber, editingPlayer ?? undefined) && (
+                  <div style={{ fontSize: 12, color: 'var(--color-warning, #b58900)', width: '100%', padding: '2px 0 0 4px' }}>
+                    ⚠ {getDupeWarning(editNumber, editingPlayer ?? undefined)}
+                  </div>
+                )}
               </div>
             ) : (
               <div key={p.id} className="roster-item" onClick={() => startEditPlayer(p)} style={{ cursor: 'pointer' }}>
@@ -305,6 +334,11 @@ export function TeamsPage() {
           </select>
           <button onClick={addPlayer} className="primary">+</button>
         </div>
+        {getDupeWarning(newNumber) && (
+          <div style={{ fontSize: 12, color: 'var(--color-warning, #b58900)', padding: '2px 0 0 4px' }}>
+            ⚠ {getDupeWarning(newNumber)}
+          </div>
+        )}
 
         {confirmDelete && (
           <ConfirmDialog
@@ -362,23 +396,64 @@ export function TeamsPage() {
 
       {teams.length > 0 && (
         <div className="game-list">
-          {teams.map(team => (
-            <div key={team.id} className="game-list-item" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <button
-                onClick={() => selectTeam(team)}
-                style={{ textAlign: 'left', cursor: 'pointer', flex: 1, background: 'none', border: 'none', padding: '8px 0', color: 'inherit' }}
-              >
-                <div className="teams">{team.name}</div>
-                <div className="meta">{team.playerIds.length} players</div>
-              </button>
-              <button
-                onClick={(e) => { e.stopPropagation(); setConfirmDelete(team); }}
-                style={{ minHeight: 28, minWidth: 28, padding: 0, color: 'var(--color-error)', background: 'none', fontSize: 16 }}
-              >
-                🗑
-              </button>
-            </div>
-          ))}
+          {(() => {
+            const myTeams = teams.filter(t => t.isMine)
+            const otherTeams = teams.filter(t => !t.isMine)
+            return (
+              <>
+                {myTeams.length > 0 && (
+                  <>
+                    <div style={{ fontSize: 12, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5, color: 'var(--color-text-muted)', padding: '8px 0 4px' }}>
+                      My Teams
+                    </div>
+                    {myTeams.map(team => (
+                      <div key={team.id} className="game-list-item" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <button
+                          onClick={() => selectTeam(team)}
+                          style={{ textAlign: 'left', cursor: 'pointer', flex: 1, background: 'none', border: 'none', padding: '8px 0', color: 'inherit' }}
+                        >
+                          <div className="teams">★ {team.name}</div>
+                          <div className="meta">{team.playerIds.length} players</div>
+                        </button>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); setConfirmDelete(team); }}
+                          style={{ minHeight: 28, minWidth: 28, padding: 0, color: 'var(--color-error)', background: 'none', fontSize: 16 }}
+                        >
+                          🗑
+                        </button>
+                      </div>
+                    ))}
+                  </>
+                )}
+                {otherTeams.length > 0 && (
+                  <>
+                    {myTeams.length > 0 && (
+                      <div style={{ fontSize: 12, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5, color: 'var(--color-text-muted)', padding: '8px 0 4px' }}>
+                        Other Teams
+                      </div>
+                    )}
+                    {otherTeams.map(team => (
+                      <div key={team.id} className="game-list-item" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <button
+                          onClick={() => selectTeam(team)}
+                          style={{ textAlign: 'left', cursor: 'pointer', flex: 1, background: 'none', border: 'none', padding: '8px 0', color: 'inherit' }}
+                        >
+                          <div className="teams">{team.name}</div>
+                          <div className="meta">{team.playerIds.length} players</div>
+                        </button>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); setConfirmDelete(team); }}
+                          style={{ minHeight: 28, minWidth: 28, padding: 0, color: 'var(--color-error)', background: 'none', fontSize: 16 }}
+                        >
+                          🗑
+                        </button>
+                      </div>
+                    ))}
+                  </>
+                )}
+              </>
+            )
+          })()}
         </div>
       )}
 
