@@ -16,6 +16,8 @@ export interface BattingStats {
   bb: number;   // walks
   so: number;   // strikeouts
   hbp: number;
+  sf: number;   // sacrifice flies
+  sh: number;   // sacrifice bunts
   sb: number;
   cs: number;
   avg: number;
@@ -45,7 +47,7 @@ export function computeBattingStats(events: PlayEvent[], playerId: Id): BattingS
   const stats: BattingStats = {
     playerId,
     pa: 0, ab: 0, h: 0, singles: 0, doubles: 0, triples: 0, hr: 0,
-    rbi: 0, bb: 0, so: 0, hbp: 0, sb: 0, cs: 0,
+    rbi: 0, bb: 0, so: 0, hbp: 0, sf: 0, sh: 0, sb: 0, cs: 0,
     avg: 0, obp: 0, slg: 0, ops: 0,
   };
 
@@ -75,7 +77,13 @@ export function computeBattingStats(events: PlayEvent[], playerId: Id): BattingS
         }
         break;
       case 'out':
-        stats.ab++;
+        if (event.sacrifice === 'fly') {
+          stats.sf++;
+        } else if (event.sacrifice === 'bunt') {
+          stats.sh++;
+        } else {
+          stats.ab++;
+        }
         stats.rbi += event.rbi;
         break;
       case 'error':
@@ -107,7 +115,7 @@ export function computeBattingStats(events: PlayEvent[], playerId: Id): BattingS
 
   // Compute rate stats
   stats.avg = stats.ab > 0 ? stats.h / stats.ab : 0;
-  const obpDenom = stats.ab + stats.bb + stats.hbp;
+  const obpDenom = stats.ab + stats.bb + stats.hbp + stats.sf;
   stats.obp = obpDenom > 0 ? (stats.h + stats.bb + stats.hbp) / obpDenom : 0;
   const totalBases = stats.singles + stats.doubles * 2 + stats.triples * 3 + stats.hr * 4;
   stats.slg = stats.ab > 0 ? totalBases / stats.ab : 0;

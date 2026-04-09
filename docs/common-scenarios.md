@@ -103,6 +103,39 @@ Most scoring scenarios in this document apply identically to both baseball and s
 
 > Home runs are fully deterministic — no user input needed for runner destinations. App should auto-dispatch without showing runner resolution.
 
+### 1.5 Walk-Off Hit Value Rule (MLB 9.06(f))
+
+When a batter ends the game with a safe hit that drives in the winning run, the batter is credited with **only as many bases as are advanced by the runner who scores the winning run**.
+
+| ID | Situation | Apparent Hit | Official Score | Why |
+|----|-----------|-------------|---------------|-----|
+| WO1 | Bottom 9th, tie, 2B occupied. Batter hits ball off the wall. | Double | **Single** | Runner from 2B scores on a single. Batter only gets credit for the base needed. |
+| WO2 | Bottom 9th, tie, 1B occupied. Batter hits ball to gap, runner scores from 1B. | Double | **Double** | Runner needed to score from 1B → batter advanced 2 bases → double is correct. |
+| WO3 | Bottom 9th, tie, bases empty. Batter hits over the fence. | Home run | **Home run** | Walk-off homer: batter IS the winning run, no reduction. |
+| WO4 | Bottom 10th, runner on 3B (auto-runner). Batter singles. | Single | **Single** | Correct as-is — one base was enough to score the runner. |
+
+**App behavior (v0.1.2):** Document only. The user should manually select the correct hit type. The app does not auto-downgrade.
+
+**Future engine:** When `isGameOver` triggers on a hit event, validate hit type ≤ bases needed to score the winning run. Prompt: "Walk-off! Credit as a [single] (only N base(s) needed)."
+
+### 1.6 Hit Value Reduction (MLB 9.06(b)–(c))
+
+**9.06(b) — Batter advances on defense's throw:** When a batter reaches a further base because the defense threw to another base (fielder's choice throw), the batter is only credited with the base they would have reached without the throw.
+
+| ID | Situation | What Happens | Credit |
+|----|-----------|-------------|--------|
+| HV1 | Single to LF, LF throws to 3B to get runner. Batter takes 2B on the throw. | Batter at 2B, but only because of throw elsewhere | **Single** |
+| HV2 | Single to RF, RF throws home, runner safe, batter takes 2B. | Batter took extra base on throw home | **Single** |
+
+**9.06(c) — Oversliding:** If a batter overslides a base and is tagged out, credit the last base safely held.
+
+| ID | Situation | Credit |
+|----|-----------|--------|
+| HV3 | Batter hits to gap, rounds 2B, overslides, tagged out at 2B | **Single** (last base safely held was 1B) |
+| HV4 | Batter hits deep, rounds 3B, overslides, tagged out at 3B | **Double** (last base safely held was 2B) |
+
+**App behavior (v0.1.2):** Document only. The user should select the correct (reduced) hit type. Future: add validation hints.
+
 ---
 
 ## 2. Outs
@@ -247,6 +280,17 @@ When a batter bunts and reaches safely because the defense threw out a runner in
 - Notation: user taps fielding positions (e.g., `6-4` for SS to 2B).
 - No sacrifice credit. At-bat charged. No hit credit.
 
+### 5.3 RBI Judgment on Fielder Holds Ball / Throws Wrong Base (MLB 9.04(c))
+
+When a run scores because a fielder holds the ball or throws to the wrong base, whether or not to credit an RBI depends on the runner's behavior:
+
+| Scenario | RBI? | Why |
+|----------|------|-----|
+| Runner keeps going without hesitation | **Yes** | Runner was advancing on the play; the misplay didn't cause the advance |
+| Runner stops, then starts again when they notice the misplay | **No** (FC) | Runner only advanced because of the fielder's mistake — scored on a fielder's choice |
+
+This is a judgment call. The app leaves RBI as user-editable on all FC and error events to accommodate this.
+
 ---
 
 ## 6. Double Play / Triple Play
@@ -329,6 +373,18 @@ A wild pitch or passed ball occurs ON a pitch. The pitch itself has a result (ba
 ### 7.3 WP/PB Between At-Bats
 
 Less common, but possible (e.g., catcher drops ball returning to pitcher). Handle as a standalone event with no pitch association.
+
+### 7.4 When NOT to Charge WP/PB (MLB 9.13 Comment)
+
+> "The official scorer shall not charge a wild pitch or passed ball if the defensive team makes an out before any runners advance."
+
+| ID | Situation | Play | WP/PB Charged? |
+|----|-----------|------|----------------|
+| WP-N1 | Runner on 1B, pitch gets past catcher | Catcher recovers, throws out runner trying for 2B | **No** — out was made before runner advanced |
+| WP-N2 | Runner on 3B, pitch in the dirt | Runner stays, catcher blocks ball | **No** — no runners advanced |
+| WP-N3 | Runners on 1B+3B, pitch gets away | 1B runner thrown out at 2B, but 3B scores | **Yes** — a runner (3B) advanced before the out |
+
+**App behavior (v0.1.2):** Document only. If the defense makes an out before any runner advances, the user should record the out event (e.g., caught stealing) rather than a WP/PB event. The app does not automatically validate this.
 
 ---
 
@@ -458,6 +514,69 @@ In softball, the equivalent of a balk is an **illegal pitch** — the pitcher vi
 | E-H2 | Double + E8 | Batter gets double. Runner from 1B scores on the error. | |
 
 **App behavior:** After choosing a hit type, user can toggle "Error on play?" and select the fielder. Runner destinations are adjusted by the user to reflect the error's effect.
+
+### 12.3 RBI on Error Plays (MLB 9.04(a)(3))
+
+An RBI is credited on an error play when, **before two are out**, an error is made on a play on which a runner from third base **ordinarily would score**.
+
+| ID | Outs | Runners | Play | RBI? | Why |
+|----|------|---------|------|------|-----|
+| E-R1 | 0 | 3B | Batter hits ground ball, SS bobbles it (error), runner scores | **Yes** | Runner from 3B ordinarily scores on a ground ball with < 2 outs |
+| E-R2 | 1 | 3B | Same as above | **Yes** | Still < 2 outs — runner ordinarily scores |
+| E-R3 | 2 | 3B | Batter hits ground ball, SS bobbles it, runner scores | **No** | With 2 outs, the batter would have been out → runner would NOT ordinarily score |
+| E-R4 | 0 | 1B | Error on throw to 1B, runner from 1B takes 3B | **No** | Runner from 1B does not "ordinarily" score on a ground ball |
+
+**App behavior:** The autoAdvance module defaults `rbi: 1` on error plays when a runner is on 3B with < 2 outs. Otherwise, `rbi: 0`.
+
+### 12.4 Wild Throw Error Rules (MLB 9.12)
+
+**One error per wild throw:** Only **one** error is charged per wild throw, regardless of how many bases runners advance on that throw.
+
+| ID | Play | Errors Charged |
+|----|------|---------------|
+| E-W1 | SS throws wild to 1B. Runner from 1B goes to 3B (2 extra bases). | 1 error on SS |
+| E-W2 | Catcher throws wild to 2B on SB attempt. Runner takes 3B. | 1 error on catcher (only if runner takes extra base beyond stolen base — see §12.7) |
+
+### 12.5 Muffed Foul Extending At-Bat (MLB 9.12)
+
+If a fielder drops a catchable foul ball, prolonging the at-bat, and the batter subsequently reaches base, the fielder is charged with an error. The batter is NOT credited with a hit.
+
+| ID | Play | Result |
+|----|------|--------|
+| E-M1 | RF drops catchable foul fly. Batter later singles. | Hit credited (the subsequent single is a real hit). Error charged to RF for the muff — this is tracked separately. |
+| E-M2 | 1B drops catchable foul popup. Batter later reaches on error. | Error on 1B for the muff. Reached-on-error for the subsequent play. |
+
+**Note:** The muffed foul itself is not an "error on the play" — it prolonged an at-bat that should have ended. The error is recorded for the scorer's record but is separate from the at-bat outcome.
+
+### 12.6 Error on Attempted DP Throw (MLB 9.12)
+
+When a fielder makes a bad throw trying to complete a double play, the error is charged for the runner the throw was targeting, NOT for the runner already retired.
+
+| ID | Play | Error Charged To |
+|----|------|------------------|
+| E-DP1 | 6-4-3 DP attempt. SS to 2B (out #1). 2B throws wild to 1B. Batter safe. | Error on 2B (the throw to 1B failed) |
+| E-DP2 | 5-4-3 DP attempt. 3B to 2B. 2B drops the ball, no out at 2B. | Error on 2B (the force at 2B failed) |
+
+### 12.7 Mental Mistakes vs. Physical Errors (MLB 9.12)
+
+**Mental mistakes are NOT errors** unless accompanied by a physical misplay.
+
+| Scenario | Error? | Why |
+|----------|--------|-----|
+| Fielder cleanly fields ball but throws to wrong base | **No** | Mental mistake, no physical misplay |
+| Fielder fails to cover a base on a steal | **No** | Positioning/judgment error, not a physical misplay |
+| Fielder fields ball, starts to throw to wrong base, bobbles during correction, runner safe | **Yes** | The bobble is a physical misplay |
+| Fielder cleanly fields ball, throws accurately to correct base, 1B drops it | **Yes** (on 1B) | The drop is a physical misplay |
+
+### 12.8 Steal Attempt Throw Errors (MLB 9.12)
+
+A catcher's wild throw on a steal attempt is only an error if the runner takes **extra** bases beyond the stolen base.
+
+| ID | Play | Error? |
+|----|------|--------|
+| E-SB1 | Runner steals 2B. Catcher throws wild into CF. Runner stays at 2B. | **No** — runner only reached the stolen base |
+| E-SB2 | Runner steals 2B. Catcher throws wild into CF. Runner goes to 3B. | **Yes** — one error on catcher for the extra base |
+| E-SB3 | Runner steals 2B. Catcher throws wild, runner scores from 2B. | **Yes** — one error on catcher (one error regardless of how many extra bases) |
 
 ---
 
@@ -689,3 +808,102 @@ Rules and scenarios documented here but not yet implemented in the engine:
 | `droppedThirdStrike` rules toggle | §15 | Documented. Toggle needs to be added to `GameRules`. |
 | `allowLeadoffs` rules toggle | §17.4 | Documented. Informational only — no engine impact. |
 | Extra-inning auto-runner earned/unearned | §13 | Documented. Earned-run tracking not yet implemented. |
+| Earned/unearned run reconstruction | §19 (9.16) | Major feature. Requires per-pitcher runner tracking + inning reconstruction without errors/PB. v0.2.0. |
+| W/L pitcher / save determination | §19 (9.14–9.15) | Requires pitcher-of-record state, lead-change detection. v0.2.0. |
+| Inherited runner charging for relievers | §19 (9.16(g)–(h)) | Per-runner pitcher association needed. Depends on earned-run system. v0.2.0. |
+| Shutout attribution | §19 (9.17) | Simple once pitcher tracking exists. v0.2.0. |
+| Interference / obstruction event types | §20 | Catcher's interference most common (awards 1B, catcher error, no AB). v0.2.0. |
+
+---
+
+## 19. MLB Official Scoring Rules — Compliance Tracker
+
+This section tracks the app's compliance with MLB Official Scoring Rules (Rule 9). It was created from a comprehensive audit comparing Rules 9.02–9.17 against the app's documentation, engine code, and data models.
+
+### ✅ Rules Correctly Implemented
+
+| Rule | Topic | Where |
+|------|-------|-------|
+| 9.04(a)(1)–(2) | RBI credited on hits, sac, FC, BB, HBP | §1–§5, §10–§11 |
+| 9.05(a) | Hit credited when batter reaches safely on fair ball | §1 |
+| 9.05(b)(3)–(4) | No hit credited on fielder's choice | §5 |
+| 9.06(a) | Single/double/triple determined by base reached | §1.1–§1.3 |
+| 9.08(a)–(c) | Sac bunt: batter MUST be out. Bunt FC/single when batter safe. | §4, §4.1 |
+| 9.08(d)–(e) | Sac fly: fly out + < 2 outs + runner scores | §3 |
+| 9.13 | WP = pitcher's fault (earned). PB = catcher's fault (unearned). | §7 |
+| 9.13 + strikeout | Strikeout + WP both scored on dropped 3rd strike | §7.2 (WP-P4) |
+| Force chain | Walk/HBP force only continuous chain from 1B | §10, §11 |
+| Balk | All runners advance one base, deterministic | §9a |
+| 3rd-out force rule | No run scores if 3rd out is a force out | §13.1–§13.2 |
+| Timing play | Run CAN score on 3rd out if tag (not force) and runner crossed plate first | §13.2 (IE6, IE7) |
+| Dropped 3rd strike | Batter can run when 1B empty OR 2 outs | §15 (DK1–DK4) |
+
+### 🔧 Rules Fixed in v0.1.2
+
+| Rule | Bug | Fix |
+|------|-----|-----|
+| 9.02(a)(1) | Sac fly/bunt were counted as at-bats, inflating AB and deflating AVG/SLG | `statsEngine.ts`: check `event.sacrifice` before incrementing AB. Added `sf`/`sh` counters. |
+| 9.02 OBP | OBP denominator was `AB + BB + HBP` — missing SF | Fixed to `AB + BB + HBP + SF` |
+| 9.04(b)(1) | No validation preventing RBI on force double play | `AtBatPanel.tsx`: zeroes RBI on force DP. Added UI hint warning. `autoAdvance.ts`: `computeDefaultRbi()` returns 0 for force DPs. |
+| 9.04(a)(3) | No guidance for RBI on error plays with runner on 3B | Documented in §12.3. Auto-advance defaults RBI=1 when R3B + <2 outs + error. |
+| 9.04(c) | No guidance for RBI judgment (fielder holds ball / throws wrong base) | Documented in §5.3. |
+| 9.06(f) | Walk-off hit not limited to bases needed to score winning run | Documented in §1.5. Engine enforcement deferred. |
+| 9.06(b)–(c) | No guidance for hit value reduction (FC throw, oversliding) | Documented in §1.6. |
+| 9.12 | Error rules were sparse (only E1–E3, E-H1–H2) | Expanded §12 with: §12.3 RBI on errors, §12.4 wild throw rules, §12.5 muffed foul, §12.6 DP throw errors, §12.7 mental mistakes, §12.8 steal throw errors. |
+| 9.13 Comment | WP/PB not charged if defense makes out before runners advance — not documented | Documented in §7.4. |
+
+### ⚠️ Known Gaps (Deferred — v0.2.0+)
+
+| Rule | Gap | Blocker |
+|------|-----|---------|
+| 9.16 | Earned/unearned run reconstruction | Requires per-pitcher runner tracking + inning reconstruction without errors/PB |
+| 9.14–9.15 | W/L pitcher and save determination | Requires pitcher-of-record state variable + lead-change detection |
+| 9.16(g)–(h) | Inherited runner charging for relief pitchers | Requires per-runner `responsiblePitcherId` tracking. Depends on 9.16. |
+| 9.17 | Shutout attribution | Simple once pitcher W/L tracking exists: `r === 0` for complete game |
+| 6.01(c) | Catcher's interference — batter awarded 1B, catcher error, no AB | No `interference` event type in `PlayEvent` union. See §20. |
+| 6.01 | Batter/runner interference, obstruction | No event types. See §20. |
+
+---
+
+## 20. Interference / Obstruction (Future — v0.2.0+)
+
+Rules for interference and obstruction plays. These don't currently have event types in the app but are documented for future implementation.
+
+### 20.1 Catcher's Interference (Rule 6.01(c)) — Highest Priority
+
+The catcher hinders the batter during a swing (usually the catcher's mitt contacts the bat).
+
+| Effect | Details |
+|--------|---------|
+| Batter awarded | 1B (automatic) |
+| At-bat charged? | **No** — not an AB |
+| Error charged? | **Yes** — error on the catcher |
+| Runners | Force chain advances (same as walk/HBP) |
+| Earned run impact | Runner reaching on CI does not count as earned for the pitcher |
+
+**Why it matters:** Catcher's interference is relatively uncommon (~30 times/year in MLB) but it affects multiple stats: no AB, error charged, and the earned run exception. Without a dedicated event type, it can't be properly recorded.
+
+### 20.2 Other Interference / Obstruction Types
+
+| Type | Rule | Effect | Frequency |
+|------|------|--------|-----------|
+| Batter interference | 6.03(a) | Batter interferes with catcher's throw (e.g., on steal). Batter is out. | Uncommon |
+| Runner interference | 6.01(a) | Runner interferes with a fielder making a play. Runner is out. | Uncommon |
+| Obstruction | 6.01(h) | Fielder without the ball impedes a runner. Runner awarded next base. | Occasional |
+| Spectator interference | 6.01(e) | Fan reaches onto field and affects play. Dead ball, umpire places runners. | Rare |
+
+### 20.3 Future Event Type Stub
+
+When implemented, the `PlayEvent` union will gain:
+
+```ts
+interface InterferenceEvent extends BasePlayEvent {
+  type: 'interference';
+  interferenceType: 'catcher' | 'batter' | 'runner' | 'obstruction';
+  // For catcher's interference: batter awarded 1B, error on catcher
+  // For batter/runner interference: batter/runner is out
+  // For obstruction: runner awarded next base
+}
+```
+
+**v0.1.2 scope:** Documentation only. No event type added yet. Users can manually record catcher's interference as a reached-on-error with a note.

@@ -21,7 +21,7 @@ export interface RunnerDefault {
 
 export type AutoAdvanceOutcome =
   | { kind: 'hit'; hitType: 'single' | 'double' | 'triple' | 'home_run' }
-  | { kind: 'out'; outType: string; sacrifice?: 'fly' | 'bunt' }
+  | { kind: 'out'; outType: string; sacrifice?: 'fly' | 'bunt'; isForceDP?: boolean }
   | { kind: 'fielders_choice' }
   | { kind: 'error' }
   | { kind: 'dropped_third_strike' }
@@ -293,4 +293,20 @@ function nextBase(from: Base | 'batter'): Base | null {
     case 'third': return 'home';
     default: return null;
   }
+}
+
+// ─── RBI helpers ────────────────────────────────
+
+/**
+ * Compute RBI from runner defaults, respecting MLB 9.04(b)(1):
+ * No RBI is credited when the batter grounds into a force double play.
+ */
+export function computeDefaultRbi(
+  runners: RunnerDefault[],
+  outcome: AutoAdvanceOutcome,
+): number {
+  const runsScoring = runners.filter(r => r.to === 'home' && r.from !== 'batter').length;
+  // MLB 9.04(b)(1): no RBI on force double play
+  if (outcome.kind === 'out' && outcome.isForceDP) return 0;
+  return runsScoring;
 }

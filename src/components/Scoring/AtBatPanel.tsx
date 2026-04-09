@@ -308,6 +308,11 @@ export function AtBatPanel({ game, state, players, onEvent, onCountChange, onPit
     const rbi = mvs.filter(m => m.to === 'home').length;
     const outsRecorded = mvs.filter(m => m.to === 'out').length;
 
+    // MLB 9.04(b)(1): No RBI on force double play
+    const isForceDP = outcome.kind === 'out' && outsRecorded >= 2 &&
+      (outcome.outType === 'ground_out' || outsRecorded >= 2);
+    const adjustedRbi = isForceDP ? 0 : rbi;
+
     let event: PlayEvent;
 
     switch (outcome.kind) {
@@ -342,7 +347,7 @@ export function AtBatPanel({ game, state, players, onEvent, onCountChange, onPit
           notation: notation || '?',
           outsRecorded: Math.max(outsRecorded, 1),
           sacrifice,
-          rbi,
+          rbi: adjustedRbi,
         };
         break;
       case 'error':
@@ -608,6 +613,13 @@ export function AtBatPanel({ game, state, players, onEvent, onCountChange, onPit
             </div>
           );
         })}
+
+        {/* GIDP RBI warning — MLB 9.04(b)(1) */}
+        {outcome?.kind === 'out' && outsMarked >= 2 && runners.some(r => r.to === 'home') && (
+          <div className="helper-hint">
+            No RBI is credited on a force double play, even if a run scores (MLB 9.04(b)).
+          </div>
+        )}
 
         {/* Error on play — only for hits */}
         {outcome?.kind === 'hit' && (
