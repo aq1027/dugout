@@ -412,44 +412,44 @@ export function AtBatPanel({ game, state, players, onEvent, onCountChange, onPit
 
   // ─── Render: Pitch phase ────────────────────
   const renderPitchPhase = () => (
-    <>
-      <div className="count-display" style={{ textAlign: 'center', fontSize: '1.3em', fontWeight: 700, letterSpacing: 2, marginBottom: 4 }}>
-        {count.balls}-{count.strikes}
+    <div className="pitch-layout">
+      {/* Left — Ball (tall) */}
+      <button className="pitch-btn pitch-tall ball" onClick={() => handlePitch('ball')}>
+        <span className="pitch-tall-label">Ball</span>
+        <span className="pitch-tall-count">{count.balls}</span>
+      </button>
+
+      {/* Center column */}
+      <div className="pitch-center">
+        <div className="count-display">{count.balls}-{count.strikes}</div>
+        <button className="pitch-btn foul" onClick={() => handlePitch('foul')}>Foul</button>
+        <button className="pitch-btn in-play" onClick={() => handlePitch('in_play')}>In Play →</button>
+        <button className="pitch-btn hbp" onClick={handleHBP}>HBP</button>
+        <div className="pitch-center-row">
+          <button className="pitch-btn clock" onClick={() => handlePitch('pitch_clock_ball')}>⏱ B</button>
+          <button className="pitch-btn clock" onClick={() => handlePitch('pitch_clock_strike')}>⏱ K</button>
+        </div>
+        <button
+          className="pitch-btn undo"
+          onClick={handleUndoPitch}
+          style={pitches.length === 0 ? { visibility: 'hidden' } : undefined}
+        >
+          ↩ Undo Pitch
+        </button>
       </div>
-      <div className="pitch-buttons">
-        <button className="pitch-btn ball" onClick={() => handlePitch('ball')}>
-          Ball ({count.balls})
+
+      {/* Right — Strike (split: Swing top, Looking bottom) */}
+      <div className="pitch-tall-split">
+        <button className="pitch-btn pitch-tall-half strike" onClick={() => handlePitch('strike_swinging')}>
+          <span className="pitch-tall-label">Swing</span>
+          <span className="pitch-tall-count">{count.strikes}</span>
         </button>
-        <button className="pitch-btn strike" onClick={() => handlePitch('strike_swinging')}>
-          Swing ({count.strikes})
-        </button>
-        <button className="pitch-btn foul" onClick={() => handlePitch('foul')}>
-          Foul
-        </button>
-        <button className="pitch-btn strike" onClick={() => handlePitch('strike_looking')}>
-          Looking 👀
-        </button>
-        <button className="pitch-btn in-play" onClick={() => handlePitch('in_play')}>
-          In Play →
-        </button>
-        <button className="pitch-btn ball" onClick={handleHBP}>
-          HBP
+        <button className="pitch-btn pitch-tall-half strike looking" onClick={() => handlePitch('strike_looking')}>
+          <span className="pitch-tall-label">Looking</span>
+          <span className="pitch-tall-label">👀</span>
         </button>
       </div>
-      <div className="pitch-buttons" style={{ marginTop: 6 }}>
-        <button className="pitch-btn ball" onClick={() => handlePitch('pitch_clock_ball')} style={{ fontSize: '0.8em' }}>
-          ⏱ Clock (Ball)
-        </button>
-        <button className="pitch-btn strike" onClick={() => handlePitch('pitch_clock_strike')} style={{ fontSize: '0.8em' }}>
-          ⏱ Clock (Strike)
-        </button>
-        {pitches.length > 0 && (
-          <button className="pitch-btn" onClick={handleUndoPitch} style={{ fontSize: '0.8em' }}>
-            ↩ Undo Pitch
-          </button>
-        )}
-      </div>
-    </>
+    </div>
   );
 
   // ─── Render: Outcome phase ──────────────────
