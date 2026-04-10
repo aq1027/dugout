@@ -4,6 +4,7 @@ import type { RunnerMovement, PlayEvent } from '../../models/play';
 import type { DerivedGameState, Game } from '../../models/game';
 import type { Player } from '../../models/player';
 import { generateId } from '../../utils/id';
+import { getDefaultRunnerStates } from '../../engine/autoAdvance';
 
 interface BetweenABPanelProps {
   game: Game;
@@ -19,6 +20,7 @@ export function BetweenABPanel({ game, state, players, onEvent }: BetweenABPanel
   const [selectedRunner, setSelectedRunner] = useState<Id | null>(null);
   const [selectedBase, setSelectedBase] = useState<Base | null>(null);
   const [pickoffBase, setPickoffBase] = useState<Base | null>(null);
+  const [wpPbRunners, setWpPbRunners] = useState<{ runnerId: Id; from: Base; to: Base | 'out' | null }[]>([]);
 
   const runnersOnBase: { id: Id; base: Base }[] = [];
   if (state.bases.first) runnersOnBase.push({ id: state.bases.first, base: 'first' });
@@ -38,6 +40,7 @@ export function BetweenABPanel({ game, state, players, onEvent }: BetweenABPanel
     setSelectedRunner(null);
     setSelectedBase(null);
     setPickoffBase(null);
+    setWpPbRunners([]);
   }, []);
 
   const makeBaseEvent = useCallback(() => {
@@ -83,11 +86,10 @@ export function BetweenABPanel({ game, state, players, onEvent }: BetweenABPanel
     }
 
     if (action === 'wild_pitch' || action === 'passed_ball') {
-      // Advance each runner one base
-      const mvs: RunnerMovement[] = [];
-      if (state.bases.third) mvs.push({ runnerId: state.bases.third, from: 'third', to: 'home' });
-      if (state.bases.second) mvs.push({ runnerId: state.bases.second, from: 'second', to: 'third' });
-      if (state.bases.first) mvs.push({ runnerId: state.bases.first, from: 'first', to: 'second' });
+      // Use per-runner resolved destinations (stay-put runners excluded)
+      const mvs: RunnerMovement[] = wpPbRunners
+        .filter(r => r.to !== null && r.to !== r.from)
+        .map(r => ({ runnerId: r.runnerId, from: r.from, to: r.to! }));
       const event: PlayEvent = {
         ...makeCommon(),
         runnerMovements: mvs,
@@ -149,7 +151,7 @@ export function BetweenABPanel({ game, state, players, onEvent }: BetweenABPanel
       // We'll ask user if successful — for now default to unsuccessful
       // The UI will handle success/failure selection
     }
-  }, [action, selectedRunner, selectedBase, pickoffBase, state, runnersOnBase, game, onEvent, reset]);
+  }, [action, selectedRunner, selectedBase, pickoffBase, wpPbRunners, state, runnersOnBase, game, onEvent, reset]);
 
   const handlePickoff = useCallback((successful: boolean) => {
     if (!selectedRunner || !pickoffBase) return;
@@ -210,8 +212,16 @@ export function BetweenABPanel({ game, state, players, onEvent }: BetweenABPanel
         )}
         {hasRunners && (
           <>
-            <button onClick={() => setAction('wild_pitch')}>WP</button>
-            <button onClick={() => setAction('passed_ball')}>PB</button>
+            <button onClick={() => {
+              setAction('wild_pitch');
+              const defaults = getDefaultRunnerStates({ kind: 'wild_pitch' }, state.bases, state.outs);
+              setWpPbRunners(defaults.map(d => ({ runnerId: d.runnerId, from: d.from as Base, to: d.to })));
+            }}>WP</button>
+            <button onClick={() => {
+              setAction('passed_ball');
+              const defaults = getDefaultRunnerStates({ kind: 'passed_ball' }, state.bases, state.outs);
+              setWpPbRunners(defaults.map(d => ({ runnerId: d.runnerId, from: d.from as Base, to: d.to })));
+            }}>PB</button>
             <button onClick={() => setAction('balk')}>Balk</button>
           </>
         )}
@@ -262,13 +272,60 @@ export function BetweenABPanel({ game, state, players, onEvent }: BetweenABPanel
     );
   }
 
-  // WP / PB / Balk — just confirm  
-  if (action === 'wild_pitch' || action === 'passed_ball' || action === 'balk') {
+  // WP / PB — per-runner resolution
+  if (action === 'wild_pitch' || action === 'passed_ball') {
+    const allResolved = wpPbRunners.every(r => r.to !== null);
+    const baseLabel = (b: Base) => b === 'first' ? '1B' : b === 'second' ? '2B' : b === 'third' ? '3B' : 'H';
+
     return (
       <div className="runner-panel">
         <span className="outcome-section-label">
-          {action === 'wild_pitch' ? 'Wild Pitch' : action === 'passed_ball' ? 'Passed Ball' : 'Balk'}
-          {' — runners advance one base'}
+          {action === 'wild_pitch' ? 'Wild Pitch' : 'Passed Ball'} — Move Runners
+        </span>
+        {wpPbRunners.map(r => {
+          // Possible destinations: stay (current base), advance bases, home, out
+          const dests: (Base | 'out')[] = [];
+          dests.push(r.from); // stay
+          if (r.from === 'first') dests.push('second', 'third', 'home', 'out');
+          else if (r.from === 'second') dests.push('third', 'home', 'out');
+          else if (r.from === 'third') dests.push('home', 'out');
+
+          return (
+            <div className="runner-row" key={r.runnerId}>
+              <span className="runner-from">{baseLabel(r.from)}</span>
+              <span className="runner-name">{getPlayerName(r.runnerId)}</span>
+              <div className="runner-destinations">
+                {dests.map(dest => (
+                  <button
+                    key={dest}
+                    className={`runner-dest-btn${r.to === dest ? (dest === 'out' ? ' out-selected' : ' selected') : ''}`}
+                    onClick={() => setWpPbRunners(prev => prev.map(
+                      pr => pr.runnerId === r.runnerId ? { ...pr, to: dest } : pr
+                    ))}
+                  >
+                    {dest === r.from ? 'Stay' : dest === 'home' ? 'Scored' : dest === 'out' ? 'OUT' : baseLabel(dest)}
+                  </button>
+                ))}
+              </div>
+            </div>
+          );
+        })}
+        <div className="action-bar">
+          <button onClick={reset}>Cancel</button>
+          <button className="primary" disabled={!allResolved} onClick={makeBaseEvent}>
+            Confirm ✓
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // Balk — deterministic, just confirm
+  if (action === 'balk') {
+    return (
+      <div className="runner-panel">
+        <span className="outcome-section-label">
+          Balk — runners advance one base
         </span>
         <div className="action-bar">
           <button onClick={reset}>Cancel</button>

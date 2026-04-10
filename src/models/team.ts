@@ -6,6 +6,8 @@ export interface Team {
   shortName?: string;
   /** Player IDs in the roster */
   playerIds: Id[];
+  /** Whether this is the user's own team (pinned to top of teams list) */
+  isMine?: boolean;
   createdAt: string;
   updatedAt: string;
 }

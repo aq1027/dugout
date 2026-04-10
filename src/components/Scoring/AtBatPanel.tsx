@@ -6,6 +6,8 @@ import type { DerivedGameState, Game } from '../../models/game';
 import type { Player } from '../../models/player';
 import { displayPlayerName } from '../../models/player';
 import { generateId } from '../../utils/id';
+import { getDefaultRunnerStates } from '../../engine/autoAdvance';
+import type { AutoAdvanceOutcome } from '../../engine/autoAdvance';
 
 // ─── Types ──────────────────────────────────────
 type ScoringPhase = 'pitch' | 'outcome' | 'runners';
@@ -64,20 +66,22 @@ function baseLabel(b: Base | 'batter'): string {
 
 export function AtBatPanel({ game, state, players, onEvent, onCountChange, onPitchCountChange }: AtBatPanelProps) {
   const [phase, setPhase] = useState<ScoringPhase>('pitch');
-  const [pitches, setPitches] = useState<Pitch[]>([]);
-  const [count, setCount] = useState({ balls: 0, strikes: 0 });
+  const [pitches, setPitches] = useState<Pitch[]>(() => state.currentAtBatPitches ?? []);
+  const [count, setCount] = useState(() => state.count ?? { balls: 0, strikes: 0 });
   const [outcome, setOutcome] = useState<OutcomeType | null>(null);
-  const [notation, setNotation] = useState('');
+  const [notationPositions, setNotationPositions] = useState<PositionNumber[]>([]);
   const [runners, setRunners] = useState<RunnerState[]>([]);
   const [sacrifice, setSacrifice] = useState<'fly' | 'bunt' | undefined>(undefined);
   const [hitError, setHitError] = useState<{ fielderPosition: PositionNumber } | null>(null);
 
   const batter = getCurrentBatter(game, state);
 
-  // On mount (key change), sync parent with our initial 0-0 count
+  // On mount (key change), sync parent with initial count (may be restored from undo)
   useEffect(() => {
-    onCountChange?.({ balls: 0, strikes: 0 });
-    onPitchCountChange?.(0);
+    const initialCount = state.count ?? { balls: 0, strikes: 0 };
+    const initialPitches = state.currentAtBatPitches ?? [];
+    onCountChange?.(initialCount);
+    onPitchCountChange?.(initialPitches.length);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const resetAtBat = useCallback(() => {
@@ -85,7 +89,7 @@ export function AtBatPanel({ game, state, players, onEvent, onCountChange, onPit
     setPitches([]);
     setCount({ balls: 0, strikes: 0 });
     setOutcome(null);
-    setNotation('');
+    setNotationPositions([]);
     setRunners([]);
     setSacrifice(undefined);
     setHitError(null);
@@ -118,41 +122,16 @@ export function AtBatPanel({ game, state, players, onEvent, onCountChange, onPit
 
   // ─── Build runner states for resolution ─────
   const buildRunnerStates = useCallback((outcomeVal: OutcomeType): RunnerState[] => {
-    const rs: RunnerState[] = [];
+    // Map AtBatPanel OutcomeType → AutoAdvanceOutcome
+    const aaOutcome: AutoAdvanceOutcome =
+      outcomeVal.kind === 'hit' ? { kind: 'hit', hitType: outcomeVal.hitType } :
+      outcomeVal.kind === 'out' ? { kind: 'out', outType: outcomeVal.outType } :
+      outcomeVal.kind === 'error' ? { kind: 'error' } :
+      outcomeVal.kind === 'fielders_choice' ? { kind: 'fielders_choice' } :
+      { kind: 'dropped_third_strike' };
 
-    // Runners on base
-    if (state.bases.third) rs.push({ runnerId: state.bases.third, from: 'third', to: null });
-    if (state.bases.second) rs.push({ runnerId: state.bases.second, from: 'second', to: null });
-    if (state.bases.first) rs.push({ runnerId: state.bases.first, from: 'first', to: null });
-
-    // Batter
-    rs.push({ runnerId: batter.playerId, from: 'batter', to: null });
-
-    // Auto-resolve some outcomes
-    if (outcomeVal.kind === 'hit') {
-      const batterRunner = rs.find(r => r.from === 'batter')!;
-      switch (outcomeVal.hitType) {
-        case 'single':
-          batterRunner.to = 'first';
-          break;
-        case 'double':
-          batterRunner.to = 'second';
-          break;
-        case 'triple':
-          batterRunner.to = 'third';
-          break;
-        case 'home_run':
-          // Everyone scores
-          for (const r of rs) r.to = 'home';
-          return rs;
-      }
-      // Auto-advance forced runners on singles
-      if (outcomeVal.hitType === 'single') {
-        autoAdvanceForced(rs);
-      }
-    }
-
-    return rs;
+    const defaults = getDefaultRunnerStates(aaOutcome, state.bases, state.outs, batter.playerId);
+    return defaults.map(d => ({ runnerId: d.runnerId, from: d.from, to: d.to }));
   }, [state.bases, batter.playerId]);
 
   // ─── Pitch handler ──────────────────────────
@@ -301,8 +280,9 @@ export function AtBatPanel({ game, state, players, onEvent, onCountChange, onPit
   }, [buildRunnerStates, state, batter.playerId, pitches, onEvent, resetAtBat]);
 
   // ─── Notation builder for outs ──────────────
+  const notation = notationPositions.join('-');
   const handleNotationPosition = useCallback((pos: PositionNumber) => {
-    setNotation(prev => prev ? `${prev}-${pos}` : `${pos}`);
+    setNotationPositions(prev => [...prev, pos]);
   }, []);
 
   // ─── Runner destination ─────────────────────
@@ -317,8 +297,8 @@ export function AtBatPanel({ game, state, players, onEvent, onCountChange, onPit
     if (!outcome) return;
 
     // Validate all runners have destinations
-    const activeRunners = runners.filter(r => r.to !== null);
-    // Only check runners that existed on base + batter
+    // Filter out runners who stay put (to === from) — no movement needed
+    const activeRunners = runners.filter(r => r.to !== null && r.to !== r.from);
     const mvs: RunnerMovement[] = activeRunners.map(r => ({
       runnerId: r.runnerId,
       from: r.from,
@@ -327,6 +307,11 @@ export function AtBatPanel({ game, state, players, onEvent, onCountChange, onPit
 
     const rbi = mvs.filter(m => m.to === 'home').length;
     const outsRecorded = mvs.filter(m => m.to === 'out').length;
+
+    // MLB 9.04(b)(1): No RBI on force double play
+    const isForceDP = outcome.kind === 'out' && outsRecorded >= 2 &&
+      (outcome.outType === 'ground_out' || outsRecorded >= 2);
+    const adjustedRbi = isForceDP ? 0 : rbi;
 
     let event: PlayEvent;
 
@@ -362,7 +347,7 @@ export function AtBatPanel({ game, state, players, onEvent, onCountChange, onPit
           notation: notation || '?',
           outsRecorded: Math.max(outsRecorded, 1),
           sacrifice,
-          rbi,
+          rbi: adjustedRbi,
         };
         break;
       case 'error':
@@ -427,41 +412,44 @@ export function AtBatPanel({ game, state, players, onEvent, onCountChange, onPit
 
   // ─── Render: Pitch phase ────────────────────
   const renderPitchPhase = () => (
-    <>
-      <div className="pitch-buttons">
-        <button className="pitch-btn ball" onClick={() => handlePitch('ball')}>
-          Ball ({count.balls})
-        </button>
-        <button className="pitch-btn strike" onClick={() => handlePitch('strike_swinging')}>
-          Strike ✕ ({count.strikes})
-        </button>
-        <button className="pitch-btn foul" onClick={() => handlePitch('foul')}>
-          Foul
-        </button>
-        <button className="pitch-btn strike" onClick={() => handlePitch('strike_looking')}>
-          Strike 👀
-        </button>
-        <button className="pitch-btn in-play" onClick={() => handlePitch('in_play')}>
-          In Play →
-        </button>
-        <button className="pitch-btn ball" onClick={handleHBP}>
-          HBP
+    <div className="pitch-layout">
+      {/* Left — Ball (tall) */}
+      <button className="pitch-btn pitch-tall ball" onClick={() => handlePitch('ball')}>
+        <span className="pitch-tall-label">Ball</span>
+        <span className="pitch-tall-count">{count.balls}</span>
+      </button>
+
+      {/* Center column */}
+      <div className="pitch-center">
+        <div className="count-display">{count.balls}-{count.strikes}</div>
+        <button className="pitch-btn foul" onClick={() => handlePitch('foul')}>Foul</button>
+        <button className="pitch-btn in-play" onClick={() => handlePitch('in_play')}>In Play →</button>
+        <button className="pitch-btn hbp" onClick={handleHBP}>HBP</button>
+        <div className="pitch-center-row">
+          <button className="pitch-btn clock" onClick={() => handlePitch('pitch_clock_ball')}>⏱ B</button>
+          <button className="pitch-btn clock" onClick={() => handlePitch('pitch_clock_strike')}>⏱ K</button>
+        </div>
+        <button
+          className="pitch-btn undo"
+          onClick={handleUndoPitch}
+          style={pitches.length === 0 ? { visibility: 'hidden' } : undefined}
+        >
+          ↩ Undo Pitch
         </button>
       </div>
-      <div className="pitch-buttons" style={{ marginTop: 6 }}>
-        <button className="pitch-btn ball" onClick={() => handlePitch('pitch_clock_ball')} style={{ fontSize: '0.8em' }}>
-          ⏱ Clock (Ball)
+
+      {/* Right — Strike (split: Swing top, Looking bottom) */}
+      <div className="pitch-tall-split">
+        <button className="pitch-btn pitch-tall-half strike" onClick={() => handlePitch('strike_swinging')}>
+          <span className="pitch-tall-label">Swing</span>
+          <span className="pitch-tall-count">{count.strikes}</span>
         </button>
-        <button className="pitch-btn strike" onClick={() => handlePitch('pitch_clock_strike')} style={{ fontSize: '0.8em' }}>
-          ⏱ Clock (Strike)
+        <button className="pitch-btn pitch-tall-half strike looking" onClick={() => handlePitch('strike_looking')}>
+          <span className="pitch-tall-label">Looking</span>
+          <span className="pitch-tall-label">👀</span>
         </button>
-        {pitches.length > 0 && (
-          <button className="pitch-btn" onClick={handleUndoPitch} style={{ fontSize: '0.8em' }}>
-            ↩ Undo Pitch
-          </button>
-        )}
       </div>
-    </>
+    </div>
   );
 
   // ─── Render: Outcome phase ──────────────────
@@ -510,7 +498,18 @@ export function AtBatPanel({ game, state, players, onEvent, onCountChange, onPit
 
   // ─── Render: Runner resolution ──────────────
   const renderRunnerPhase = () => {
-    const allResolved = runners.every(r => r.to !== null);
+    // Count outs already marked in runner resolution
+    const outsMarked = runners.filter(r => r.to === 'out').length;
+    const totalOuts = state.outs + outsMarked;
+    const inningOver = totalOuts >= 3;
+
+    // All resolved when either:
+    // (a) every runner has a destination, OR
+    // (b) the inning is over (3+ outs) — unresolved runners are stranded
+    const allResolved = inningOver
+      ? runners.some(r => r.to === 'out')  // at least one out recorded
+      : runners.every(r => r.to !== null);
+
     const showNotation = outcome?.kind === 'out' || outcome?.kind === 'fielders_choice';
 
     return (
@@ -522,28 +521,52 @@ export function AtBatPanel({ game, state, players, onEvent, onCountChange, onPit
               {([1, 2, 3, 4, 5, 6, 7, 8, 9] as PositionNumber[]).map(pos => (
                 <button
                   key={pos}
-                  className="position-btn"
+                  className={`position-btn${notationPositions.includes(pos) ? ' selected' : ''}`}
                   onClick={() => handleNotationPosition(pos)}
                 >
-                  {pos} {POSITION_LABELS[pos]}
+                  {POSITION_LABELS[pos]} ({pos})
                 </button>
               ))}
-              <button className="position-btn" onClick={() => setNotation('')}>Clear</button>
+              <button className="position-btn" onClick={() => setNotationPositions([])}>Clear</button>
             </div>
             {outcome?.kind === 'out' && (
               <div style={{ display: 'flex', gap: 6 }}>
                 <button
                   className={`outcome-btn${sacrifice === 'fly' ? ' selected' : ''}`}
-                  onClick={() => setSacrifice(sacrifice === 'fly' ? undefined : 'fly')}
+                  onClick={() => {
+                    const newSac = sacrifice === 'fly' ? undefined : 'fly' as const;
+                    setSacrifice(newSac);
+                    // Rebuild runner defaults with sacrifice info
+                    const aaOutcome: AutoAdvanceOutcome = { kind: 'out', outType: outcome.outType, sacrifice: newSac };
+                    const defaults = getDefaultRunnerStates(aaOutcome, state.bases, state.outs, batter.playerId);
+                    setRunners(defaults.map(d => ({ runnerId: d.runnerId, from: d.from, to: d.to })));
+                  }}
                 >
                   Sac Fly
                 </button>
                 <button
                   className={`outcome-btn${sacrifice === 'bunt' ? ' selected' : ''}`}
-                  onClick={() => setSacrifice(sacrifice === 'bunt' ? undefined : 'bunt')}
+                  onClick={() => {
+                    const newSac = sacrifice === 'bunt' ? undefined : 'bunt' as const;
+                    setSacrifice(newSac);
+                    // Rebuild runner defaults with sacrifice info
+                    const aaOutcome: AutoAdvanceOutcome = { kind: 'out', outType: outcome.outType, sacrifice: newSac };
+                    const defaults = getDefaultRunnerStates(aaOutcome, state.bases, state.outs, batter.playerId);
+                    setRunners(defaults.map(d => ({ runnerId: d.runnerId, from: d.from, to: d.to })));
+                  }}
                 >
                   Sac Bunt
                 </button>
+              </div>
+            )}
+            {sacrifice === 'bunt' && (
+              <div className="helper-hint">
+                Batter out at 1B, runner(s) advance. If batter is safe, use FC instead.
+              </div>
+            )}
+            {sacrifice === 'fly' && (
+              <div className="helper-hint">
+                Batter out on fly ball, runner tags and scores. Requires {'<'} 2 outs.
               </div>
             )}
           </div>
@@ -559,7 +582,7 @@ export function AtBatPanel({ game, state, players, onEvent, onCountChange, onPit
                   className={`position-btn${outcome.position === pos ? ' selected' : ''}`}
                   onClick={() => setOutcome({ kind: 'error', position: pos })}
                 >
-                  {pos} {POSITION_LABELS[pos]}
+                  {POSITION_LABELS[pos]} ({pos})
                 </button>
               ))}
             </div>
@@ -569,6 +592,7 @@ export function AtBatPanel({ game, state, players, onEvent, onCountChange, onPit
         <span className="outcome-section-label">Move Runners</span>
         {runners.map(r => {
           const possibleDests = getDestinations(r.from);
+          const isBatterLocked = r.from === 'batter' && sacrifice != null;
 
           return (
             <div className="runner-row" key={r.runnerId}>
@@ -580,14 +604,22 @@ export function AtBatPanel({ game, state, players, onEvent, onCountChange, onPit
                     key={dest}
                     className={`runner-dest-btn${r.to === dest ? (dest === 'out' ? ' out-selected' : ' selected') : ''}`}
                     onClick={() => handleRunnerDest(r.runnerId, dest)}
+                    disabled={isBatterLocked}
                   >
-                    {dest === 'home' ? 'H' : dest === 'out' ? 'OUT' : baseLabel(dest)}
+                    {dest === r.from ? 'Stay' : dest === 'home' ? 'Scored' : dest === 'out' ? 'OUT' : baseLabel(dest)}
                   </button>
                 ))}
               </div>
             </div>
           );
         })}
+
+        {/* GIDP RBI warning — MLB 9.04(b)(1) */}
+        {outcome?.kind === 'out' && outsMarked >= 2 && runners.some(r => r.to === 'home') && (
+          <div className="helper-hint">
+            No RBI is credited on a force double play, even if a run scores (MLB 9.04(b)).
+          </div>
+        )}
 
         {/* Error on play — only for hits */}
         {outcome?.kind === 'hit' && (
@@ -600,7 +632,7 @@ export function AtBatPanel({ game, state, players, onEvent, onCountChange, onPit
                   className={`position-btn${hitError?.fielderPosition === pos ? ' selected' : ''}`}
                   onClick={() => setHitError(hitError?.fielderPosition === pos ? null : { fielderPosition: pos })}
                 >
-                  {pos} {POSITION_LABELS[pos]}
+                  {POSITION_LABELS[pos]} ({pos})
                 </button>
               ))}
               {hitError && (
@@ -611,9 +643,14 @@ export function AtBatPanel({ game, state, players, onEvent, onCountChange, onPit
         )}
 
         <div className="action-bar">
-          <button onClick={() => { setPhase('outcome'); setRunners([]); setNotation(''); setSacrifice(undefined); setHitError(null); }}>
+          <button onClick={() => { setPhase('outcome'); setRunners([]); setNotationPositions([]); setSacrifice(undefined); setHitError(null); }}>
             ← Back
           </button>
+          {inningOver && (
+            <span style={{ fontSize: '0.85em', color: 'var(--color-warning, #b58900)' }}>
+              Inning over — remaining runners stranded
+            </span>
+          )}
           <button className="primary" disabled={!allResolved} onClick={handleSubmitPlay}>
             Record Play ✓
           </button>
@@ -636,26 +673,9 @@ export function AtBatPanel({ game, state, players, onEvent, onCountChange, onPit
 function getDestinations(from: Base | 'batter'): (Base | 'out')[] {
   switch (from) {
     case 'batter': return ['first', 'second', 'third', 'home', 'out'];
-    case 'first': return ['second', 'third', 'home', 'out'];
-    case 'second': return ['third', 'home', 'out'];
-    case 'third': return ['home', 'out'];
+    case 'first': return ['first', 'second', 'third', 'home', 'out'];
+    case 'second': return ['second', 'third', 'home', 'out'];
+    case 'third': return ['third', 'home', 'out'];
     default: return ['out'];
-  }
-}
-
-function autoAdvanceForced(runners: RunnerState[]): void {
-  // On a single, force advance runners from first
-  const onFirst = runners.find(r => r.from === 'first');
-  if (onFirst && onFirst.to === null) {
-    onFirst.to = 'second';
-    // If someone was on second, they may need to advance too
-    const onSecond = runners.find(r => r.from === 'second');
-    if (onSecond && onSecond.to === null) {
-      onSecond.to = 'third';
-      const onThird = runners.find(r => r.from === 'third');
-      if (onThird && onThird.to === null) {
-        onThird.to = 'home';
-      }
-    }
   }
 }

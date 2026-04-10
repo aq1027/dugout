@@ -19,7 +19,7 @@ export function HomePage() {
           <span className="icon">👥</span>
           Manage Teams
         </Link>
-        <Link to="/teams" className="action-card">
+        <Link to="/stats" className="action-card">
           <span className="icon">📊</span>
           Stats
         </Link>

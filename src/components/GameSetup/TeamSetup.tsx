@@ -28,6 +28,16 @@ export function TeamSetup({ label, teamId, onTeamReady }: TeamSetupProps) {
   const [newPos, setNewPos] = useState<PositionNumber>(1);
   const importFileRef = useRef<HTMLInputElement>(null);
 
+  // Duplicate jersey number warning
+  const getDupeWarning = (num: string): string | null => {
+    if (!num.trim()) return null;
+    const parsed = parseInt(num);
+    const dupe = players.find(p => p.number === parsed);
+    if (!dupe) return null;
+    const name = [dupe.firstName, dupe.lastName].filter(Boolean).join(' ') || 'another player';
+    return `#${parsed} is already assigned to ${name}`;
+  };
+
   useEffect(() => {
     db.teams.orderBy('name').toArray().then(setExistingTeams);
   }, []);
@@ -231,6 +241,11 @@ export function TeamSetup({ label, teamId, onTeamReady }: TeamSetupProps) {
             </select>
             <button type="button" onClick={addPlayer} className="primary">+</button>
           </div>
+          {getDupeWarning(newNumber) && (
+            <div style={{ fontSize: 12, color: 'var(--color-warning, #b58900)', padding: '2px 0 0 4px' }}>
+              ⚠ {getDupeWarning(newNumber)}
+            </div>
+          )}
         </>
       )}
     </div>

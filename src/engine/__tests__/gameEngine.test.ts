@@ -540,3 +540,111 @@ describe('double play', () => {
     expect(state.bases.first).toBeNull();
   });
 });
+
+// ─── LOB tracking ──────────────────────────────────
+
+describe('LOB tracking', () => {
+  it('counts runners left on base when 3rd out is recorded', () => {
+    const game = makeGame({
+      events: [
+        // Batter singles to 1B
+        baseEvent({
+          type: 'hit',
+          hitType: 'single',
+          inning: 1,
+          halfInning: 'top',
+          outsBefore: 0,
+          batterId: 'p1',
+          rbi: 0,
+          runnerMovements: [{ runnerId: 'p1', from: 'batter', to: 'first' }],
+        }),
+        // Batter walks → runners on 1B+2B
+        baseEvent({
+          type: 'walk',
+          inning: 1,
+          halfInning: 'top',
+          outsBefore: 0,
+          batterId: 'p2',
+          intentional: false,
+          rbi: 0,
+          runnerMovements: [
+            { runnerId: 'p1', from: 'first', to: 'second' },
+            { runnerId: 'p2', from: 'batter', to: 'first' },
+          ],
+        }),
+        // 3 strikeouts to end the inning
+        strikeout(1, 'top', 0, 'p3'),
+        strikeout(1, 'top', 1, 'p4'),
+        strikeout(1, 'top', 2, 'p5'),
+      ],
+    });
+    const state = deriveGameState(game);
+    expect(state.awayLOB).toBe(2); // 2 runners stranded
+  });
+
+  it('does not count runners who scored as LOB', () => {
+    const game = makeGame({
+      events: [
+        // Batter singles
+        baseEvent({
+          type: 'hit',
+          hitType: 'single',
+          inning: 1,
+          halfInning: 'top',
+          outsBefore: 0,
+          batterId: 'p1',
+          rbi: 0,
+          runnerMovements: [{ runnerId: 'p1', from: 'batter', to: 'first' }],
+        }),
+        // HR clears the bases
+        baseEvent({
+          type: 'hit',
+          hitType: 'home_run',
+          inning: 1,
+          halfInning: 'top',
+          outsBefore: 0,
+          batterId: 'p2',
+          rbi: 2,
+          runnerMovements: [
+            { runnerId: 'p1', from: 'first', to: 'home' },
+            { runnerId: 'p2', from: 'batter', to: 'home' },
+          ],
+        }),
+        // 3 outs with nobody on
+        strikeout(1, 'top', 0, 'p3'),
+        strikeout(1, 'top', 1, 'p4'),
+        strikeout(1, 'top', 2, 'p5'),
+      ],
+    });
+    const state = deriveGameState(game);
+    expect(state.awayLOB).toBe(0);
+  });
+
+  it('tracks homeLOB separately from awayLOB', () => {
+    const game = makeGame({
+      events: [
+        // Top 1: 3 quick outs, no runners
+        strikeout(1, 'top', 0, 'p1'),
+        strikeout(1, 'top', 1, 'p2'),
+        strikeout(1, 'top', 2, 'p3'),
+        // Bottom 1: single then 3 outs with runner on
+        baseEvent({
+          type: 'hit',
+          hitType: 'single',
+          inning: 1,
+          halfInning: 'bottom',
+          outsBefore: 0,
+          batterId: 'p1',
+          rbi: 0,
+          runnerMovements: [{ runnerId: 'p1', from: 'batter', to: 'first' }],
+        }),
+        strikeout(1, 'bottom', 0, 'p2'),
+        strikeout(1, 'bottom', 1, 'p3'),
+        strikeout(1, 'bottom', 2, 'p4'),
+      ],
+    });
+    const state = deriveGameState(game);
+    expect(state.awayLOB).toBe(0);
+    expect(state.homeLOB).toBe(1);
+  });
+});

@@ -252,13 +252,76 @@
   font-weight: 600;
 }
 
-/* ─── Pitch buttons ──────────────────────────────── */
-.pitch-buttons {
+/* ─── Pitch layout (3-column: Ball | Center | Strike) ─── */
+.pitch-layout {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 72px 1fr 72px;
   gap: 8px;
+  align-items: stretch;
 }
 
+.pitch-tall {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+
+.pitch-tall-split {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.pitch-center {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.pitch-tall-half {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+}
+
+.pitch-tall-label {
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.pitch-tall-count {
+  font-size: 22px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.pitch-center .count-display {
+  text-align: center;
+  font-size: 1.3em;
+  font-weight: 700;
+  letter-spacing: 2px;
+}
+
+.pitch-center .pitch-btn {
+  width: 100%;
+}
+
+.pitch-center-row {
+  display: flex;
+  gap: 6px;
+}
+
+.pitch-center-row .pitch-btn {
+  flex: 1;
+}
+
+/* Pitch button base */
 .pitch-btn {
   padding: 14px 8px;
   font-size: 15px;
@@ -282,6 +345,11 @@
 }
 .pitch-btn.strike:hover { background-color: rgba(239, 68, 68, 0.2); }
 
+.pitch-btn.strike.looking {
+  background-color: rgba(239, 68, 68, 0.08);
+  border-color: rgba(239, 68, 68, 0.18);
+}
+
 .pitch-btn.foul {
   background-color: rgba(245, 158, 11, 0.12);
   color: #fbbf24;
@@ -295,6 +363,31 @@
   border-color: rgba(37, 99, 235, 0.25);
 }
 .pitch-btn.in-play:hover { background-color: rgba(37, 99, 235, 0.2); }
+
+.pitch-btn.hbp {
+  background-color: rgba(168, 85, 247, 0.12);
+  color: #c084fc;
+  border-color: rgba(168, 85, 247, 0.25);
+}
+.pitch-btn.hbp:hover { background-color: rgba(168, 85, 247, 0.2); }
+
+.pitch-btn.clock {
+  font-size: 12px;
+  padding: 8px 4px;
+  background-color: var(--color-surface);
+  border-color: var(--color-border);
+  color: var(--color-text-muted);
+}
+.pitch-btn.clock:hover { background-color: var(--color-surface-hover); }
+
+.pitch-btn.undo {
+  font-size: 12px;
+  padding: 8px 4px;
+  background-color: var(--color-surface);
+  border-color: var(--color-border);
+  color: var(--color-text-muted);
+}
+.pitch-btn.undo:hover { background-color: var(--color-surface-hover); }
 
 /* ─── Outcome selector ───────────────────────────── */
 .outcome-panel {
@@ -344,6 +437,13 @@
   border-color: var(--color-primary);
 }
 
+.helper-hint {
+  font-size: 11px;
+  color: var(--color-text-secondary, #888);
+  font-style: italic;
+  padding: 2px 0;
+}
+
 /* ─── Out notation builder ───────────────────────── */
 .notation-builder {
   display: flex;
@@ -377,6 +477,7 @@
   font-size: 14px;
   font-weight: 700;
   text-align: center;
+  touch-action: manipulation;
 }
 
 /* ─── Runner resolution ──────────────────────────── */
@@ -940,6 +1041,13 @@
 .box-totals-row td {
   border-top: 2px solid var(--color-border);
   border-bottom: none;
+}
+
+.box-lob {
+  text-align: right;
+  font-size: 13px;
+  color: var(--color-text-secondary);
+  padding: 4px 8px 8px;
 }
 
 /* ─── Mobile responsive ──────────────────────────── */

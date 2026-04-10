@@ -124,10 +124,14 @@ export interface CaughtStealingEvent extends BasePlayEvent {
 
 export interface WildPitchEvent extends BasePlayEvent {
   type: 'wild_pitch';
+  /** The pitch result associated with this wild pitch (ball, strike, etc.) */
+  associatedPitch?: PitchResult;
 }
 
 export interface PassedBallEvent extends BasePlayEvent {
   type: 'passed_ball';
+  /** The pitch result associated with this passed ball */
+  associatedPitch?: PitchResult;
 }
 
 export interface BalkEvent extends BasePlayEvent {

@@ -149,3 +149,79 @@
   font-size: 13px;
   color: var(--color-text-muted);
 }
+
+/* ─── Stats dashboard ──────────────────────────── */
+
+.stats-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+  gap: 12px;
+  margin: 16px 0;
+}
+
+.stats-card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: 16px 12px;
+  text-align: center;
+}
+
+.stats-card-value {
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--color-primary);
+}
+
+.stats-card-label {
+  font-size: 12px;
+  color: var(--color-text-muted);
+  margin-top: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.stats-table-wrap {
+  overflow-x: auto;
+  margin-top: 12px;
+}
+
+.stats-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.stats-table th {
+  cursor: pointer;
+  user-select: none;
+  padding: 8px 6px;
+  text-align: right;
+  border-bottom: 2px solid var(--color-border);
+  font-size: 11px;
+  white-space: nowrap;
+  color: var(--color-text-muted);
+}
+
+.stats-table th:hover {
+  color: var(--color-text);
+}
+
+.stats-table td {
+  padding: 6px;
+  text-align: right;
+  border-bottom: 1px solid var(--color-border);
+  white-space: nowrap;
+}
+
+.stats-player-col {
+  text-align: left !important;
+  min-width: 120px;
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.stats-table tbody tr:hover {
+  background-color: var(--color-surface-hover);
+}

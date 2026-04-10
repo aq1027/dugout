@@ -5,6 +5,7 @@ import { HomePage } from './pages/HomePage'
 import { GamesPage } from './pages/GamesPage'
 import { GamePage } from './pages/GamePage'
 import { TeamsPage } from './pages/TeamsPage'
+import { StatsPage } from './pages/StatsPage'
 import { NewGamePage } from './components/GameSetup/NewGamePage'
 
 function App() {
@@ -25,6 +26,7 @@ function App() {
           <NavLink to="/" end>Home</NavLink>
           <NavLink to="/games">Games</NavLink>
           <NavLink to="/teams">Teams</NavLink>
+          <NavLink to="/stats">Stats</NavLink>
           <button className="theme-toggle" onClick={cycleTheme} title={`Theme: ${mode}`}>
             {themeIcon}
           </button>
@@ -37,6 +39,7 @@ function App() {
           <Route path="/game/new" element={<NewGamePage />} />
           <Route path="/game/:gameId" element={<GamePage />} />
           <Route path="/teams" element={<TeamsPage />} />
+          <Route path="/stats" element={<StatsPage />} />
         </Routes>
       </main>
     </div>
