@@ -1043,6 +1043,13 @@
   border-bottom: none;
 }
 
+.box-lob {
+  text-align: right;
+  font-size: 13px;
+  color: var(--color-text-secondary);
+  padding: 4px 8px 8px;
+}
+
 /* ─── Mobile responsive ──────────────────────────── */
 @media (max-width: 380px) {
   .outcome-grid {

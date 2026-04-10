@@ -99,4 +99,7 @@ export interface DerivedGameState {
   homeTimeouts: number;
   /** Pitch sequence for the current (incomplete) at-bat, used to restore state after undo */
   currentAtBatPitches: Pitch[];
+  /** Left on base — team totals */
+  awayLOB: number;
+  homeLOB: number;
 }

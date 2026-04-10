@@ -30,6 +30,8 @@ export function deriveGameState(game: Game): DerivedGameState {
     awayTimeouts: 0,
     homeTimeouts: 0,
     currentAtBatPitches: [],
+    awayLOB: 0,
+    homeLOB: 0,
   };
 
   for (const event of game.events) {
@@ -118,6 +120,11 @@ function applyEvent(state: DerivedGameState, event: PlayEvent, game: Game): void
 
   // Check for half-inning change (3 outs)
   if (state.outs >= 3) {
+    // Count runners left on base before clearing
+    const lob = countRunnersOnBase(state.bases);
+    if (isAwayBatting) state.awayLOB += lob;
+    else state.homeLOB += lob;
+
     advanceHalfInning(state, rules);
   }
 
@@ -251,6 +258,11 @@ function applyRunnerMovements(bases: BaseState, event: PlayEvent): void {
 function getBattingOrderSize(rules: GameRules, lineupLength?: number): number {
   if (rules.everyoneBats && lineupLength) return lineupLength;
   return rules.playersPerSide;
+}
+
+/** Count runners currently on base */
+function countRunnersOnBase(bases: BaseState): number {
+  return (bases.first ? 1 : 0) + (bases.second ? 1 : 0) + (bases.third ? 1 : 0);
 }
 
 // ─── Undo support ─────────────────────────────────────────

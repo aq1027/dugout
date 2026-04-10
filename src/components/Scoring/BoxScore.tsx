@@ -6,6 +6,7 @@ import { displayPlayerName } from '../../models/player';
 import type { PlayEvent } from '../../models/play';
 import type { Substitution } from '../../models/lineup';
 import { computeBattingStats } from '../../engine/statsEngine';
+import { deriveGameState } from '../../engine/gameEngine';
 
 interface BoxScoreProps {
   game: Game;
@@ -84,9 +85,11 @@ function fmt(n: number, decimals: number): string {
 
 export function BoxScore({ game, players }: BoxScoreProps) {
   const events = game.events;
+  const gameState = deriveGameState(game);
 
   const renderTeam = (isAway: boolean) => {
     const teamName = isAway ? game.awayTeamName : game.homeTeamName;
+    const lob = isAway ? gameState.awayLOB : gameState.homeLOB;
     const rows = buildTeamRows(game, isAway);
 
     return (
@@ -166,6 +169,7 @@ export function BoxScore({ game, players }: BoxScoreProps) {
             </tr>
           </tfoot>
         </table>
+        <div className="box-lob">LOB: {lob}</div>
       </div>
     );
   };

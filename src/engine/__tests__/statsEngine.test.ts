@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { computeBattingStats } from '../statsEngine';
+import { computeBattingStats, computeSituationalBattingStats } from '../statsEngine';
 import { getDefaultRunnerStates, computeDefaultRbi } from '../autoAdvance';
 import type { AutoAdvanceOutcome } from '../autoAdvance';
 import type { PlayEvent } from '../../models/play';
@@ -311,5 +311,166 @@ describe('computeDefaultRbi — MLB 9.04(b)(1) GIDP', () => {
     const defaults = getDefaultRunnerStates(outcome, bases, 0, 'batter1');
     const rbi = computeDefaultRbi(defaults, outcome);
     expect(rbi).toBe(1);
+  });
+});
+
+// ─── Situational batting stats ──────────────────────
+
+describe('computeSituationalBattingStats', () => {
+  it('tracks RISP hits and at-bats', () => {
+    const events: PlayEvent[] = [
+      // Runner gets to 2B
+      makeEvent({
+        type: 'hit',
+        hitType: 'double',
+        inning: 1,
+        halfInning: 'top',
+        outsBefore: 0,
+        batterId: 'runner1',
+        rbi: 0,
+        runnerMovements: [{ runnerId: 'runner1', from: 'batter', to: 'second' }],
+      }),
+      // Batter1 hits with RISP
+      makeEvent({
+        type: 'hit',
+        hitType: 'single',
+        inning: 1,
+        halfInning: 'top',
+        outsBefore: 0,
+        batterId: 'batter1',
+        rbi: 1,
+        runnerMovements: [
+          { runnerId: 'runner1', from: 'second', to: 'home' },
+          { runnerId: 'batter1', from: 'batter', to: 'first' },
+        ],
+      }),
+    ];
+    const stats = computeSituationalBattingStats(events, 'batter1');
+    expect(stats.abRisp).toBe(1);
+    expect(stats.hRisp).toBe(1);
+    expect(stats.avgRisp).toBe(1);
+  });
+
+  it('does not count as RISP when runner only on 1B', () => {
+    const events: PlayEvent[] = [
+      makeEvent({
+        type: 'hit',
+        hitType: 'single',
+        inning: 1,
+        halfInning: 'top',
+        outsBefore: 0,
+        batterId: 'runner1',
+        rbi: 0,
+        runnerMovements: [{ runnerId: 'runner1', from: 'batter', to: 'first' }],
+      }),
+      makeEvent({
+        type: 'hit',
+        hitType: 'single',
+        inning: 1,
+        halfInning: 'top',
+        outsBefore: 0,
+        batterId: 'batter1',
+        rbi: 0,
+        runnerMovements: [
+          { runnerId: 'runner1', from: 'first', to: 'second' },
+          { runnerId: 'batter1', from: 'batter', to: 'first' },
+        ],
+      }),
+    ];
+    const stats = computeSituationalBattingStats(events, 'batter1');
+    expect(stats.abRisp).toBe(0);
+    expect(stats.hRisp).toBe(0);
+  });
+
+  it('tracks 2-out RBI', () => {
+    const events: PlayEvent[] = [
+      makeEvent({
+        type: 'hit',
+        hitType: 'single',
+        inning: 1,
+        halfInning: 'top',
+        outsBefore: 0,
+        batterId: 'runner1',
+        rbi: 0,
+        runnerMovements: [{ runnerId: 'runner1', from: 'batter', to: 'first' }],
+      }),
+      makeEvent({
+        type: 'hit',
+        hitType: 'home_run',
+        inning: 1,
+        halfInning: 'top',
+        outsBefore: 2,
+        batterId: 'batter1',
+        rbi: 2,
+        runnerMovements: [
+          { runnerId: 'runner1', from: 'first', to: 'home' },
+          { runnerId: 'batter1', from: 'batter', to: 'home' },
+        ],
+      }),
+    ];
+    const stats = computeSituationalBattingStats(events, 'batter1');
+    expect(stats.twoOutRbi).toBe(2);
+  });
+
+  it('counts LOB when batter makes an out with runners on', () => {
+    const events: PlayEvent[] = [
+      // Runner on 1B
+      makeEvent({
+        type: 'hit',
+        hitType: 'single',
+        inning: 1,
+        halfInning: 'top',
+        outsBefore: 0,
+        batterId: 'runner1',
+        rbi: 0,
+        runnerMovements: [{ runnerId: 'runner1', from: 'batter', to: 'first' }],
+      }),
+      // Runner on 2B
+      makeEvent({
+        type: 'hit',
+        hitType: 'single',
+        inning: 1,
+        halfInning: 'top',
+        outsBefore: 0,
+        batterId: 'runner2',
+        rbi: 0,
+        runnerMovements: [
+          { runnerId: 'runner1', from: 'first', to: 'second' },
+          { runnerId: 'runner2', from: 'batter', to: 'first' },
+        ],
+      }),
+      // Batter strikes out — 2 LOB
+      makeEvent({
+        type: 'strikeout',
+        inning: 1,
+        halfInning: 'top',
+        outsBefore: 0,
+        batterId: 'batter1',
+        looking: false,
+      }),
+    ];
+    const stats = computeSituationalBattingStats(events, 'batter1');
+    expect(stats.lob).toBe(2);
+  });
+
+  it('returns zero RISP stats when no situational events', () => {
+    const events: PlayEvent[] = [
+      makeEvent({
+        type: 'hit',
+        hitType: 'single',
+        inning: 1,
+        halfInning: 'top',
+        outsBefore: 0,
+        batterId: 'batter1',
+        rbi: 0,
+        runnerMovements: [{ runnerId: 'batter1', from: 'batter', to: 'first' }],
+      }),
+    ];
+    const stats = computeSituationalBattingStats(events, 'batter1');
+    expect(stats.abRisp).toBe(0);
+    expect(stats.hRisp).toBe(0);
+    expect(stats.avgRisp).toBe(0);
+    expect(stats.twoOutRbi).toBe(0);
+    expect(stats.lob).toBe(0);
   });
 });

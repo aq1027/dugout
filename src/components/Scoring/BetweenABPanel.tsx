@@ -5,7 +5,6 @@ import type { DerivedGameState, Game } from '../../models/game';
 import type { Player } from '../../models/player';
 import { generateId } from '../../utils/id';
 import { getDefaultRunnerStates } from '../../engine/autoAdvance';
-import type { AutoAdvanceOutcome } from '../../engine/autoAdvance';
 
 interface BetweenABPanelProps {
   game: Game;
