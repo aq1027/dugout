@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import { db } from '../db'
 import type { Game } from '../models/game'
@@ -6,7 +6,7 @@ import type { Player } from '../models/player'
 import { displayPlayerName } from '../models/player'
 import type { Id, Count } from '../models/common'
 import type { PlayEvent } from '../models/play'
-import { deriveGameState, undoLastEvent } from '../engine/gameEngine'
+import { deriveGameState, undoLastEventWithLineup } from '../engine/gameEngine'
 import { Scoreboard } from '../components/Scoring/Scoreboard'
 import { GameStateDisplay } from '../components/Scoring/GameStateDisplay'
 import { LineScore } from '../components/Scoring/LineScore'
@@ -22,6 +22,8 @@ export function GamePage() {
   const { gameId } = useParams<{ gameId: string }>()
   const navigate = useNavigate()
   const [game, setGame] = useState<Game | null>(null)
+  // Mirrors `game` so async handlers never read a stale render closure
+  const gameRef = useRef<Game | null>(null)
   const [players, setPlayers] = useState<Map<Id, Player>>(new Map())
   const [showLineScore, setShowLineScore] = useState(false)
   const [showLog, setShowLog] = useState(false)
@@ -29,6 +31,11 @@ export function GamePage() {
   const [showLineup, setShowLineup] = useState<'away' | 'home' | null>(null)
   const [confirmAction, setConfirmAction] = useState<'end' | 'cancel' | 'delete' | null>(null)
   const [livePitchCount, setLivePitchCount] = useState(0)
+
+  // Keep the ref in sync after every commit, so handlers read current state
+  useEffect(() => {
+    gameRef.current = game
+  }, [game])
 
   // Load game and players
   useEffect(() => {
@@ -46,50 +53,67 @@ export function GamePage() {
     })
   }, [gameId])
 
-  // Persist event and update game
+  /** Single commit point — ref first so rapid successive calls stay consistent */
+  const commitGame = useCallback(async (next: Game) => {
+    gameRef.current = next
+    setGame(next)
+    await db.games.put(next)
+  }, [])
+
+  // Persist event and update game.
+  // Reads the latest game from a ref rather than the render closure — a caller
+  // that updates the game and records an event in the same tick must not have
+  // its change clobbered by a stale `game`.
   const handleEvent = useCallback(async (event: PlayEvent) => {
-    if (!game) return
-    const updatedGame: Game = {
-      ...game,
-      events: [...game.events, event],
+    const current = gameRef.current
+    if (!current) return
+    await commitGame({
+      ...current,
+      events: [...current.events, event],
       status: 'in_progress',
       updatedAt: new Date().toISOString(),
-    }
-    await db.games.put(updatedGame)
-    setGame(updatedGame)
-  }, [game])
+    })
+  }, [commitGame])
 
-  // Undo last event
-  const handleUndo = useCallback(async () => {
-    if (!game) return
-    const newEvents = undoLastEvent(game)
-    const updatedGame: Game = {
-      ...game,
-      events: newEvents,
-      status: newEvents.length === 0 ? 'setup' : 'in_progress',
+  // Apply a game mutation (e.g. a lineup change) and record its event as ONE
+  // write. Splitting these caused the substitution bug: the event write was
+  // built from a pre-substitution `game` and reverted the roster change.
+  const handleGameUpdateWithEvent = useCallback(async (updatedGame: Game, event: PlayEvent) => {
+    await commitGame({
+      ...updatedGame,
+      events: [...updatedGame.events, event],
+      status: 'in_progress',
       updatedAt: new Date().toISOString(),
-    }
-    await db.games.put(updatedGame)
-    setGame(updatedGame)
-  }, [game])
+    })
+  }, [commitGame])
+
+  // Undo last event — also reverts the lineup if the event was a substitution
+  const handleUndo = useCallback(async () => {
+    const current = gameRef.current
+    if (!current) return
+    const reverted = undoLastEventWithLineup(current)
+    await commitGame({
+      ...reverted,
+      status: reverted.events.length === 0 ? 'setup' : 'in_progress',
+      updatedAt: new Date().toISOString(),
+    })
+  }, [commitGame])
 
   // End game (mark as final)
   const handleEndGame = useCallback(async () => {
-    if (!game) return
-    const updatedGame: Game = { ...game, status: 'final', updatedAt: new Date().toISOString() }
-    await db.games.put(updatedGame)
-    setGame(updatedGame)
+    const current = gameRef.current
+    if (!current) return
+    await commitGame({ ...current, status: 'final', updatedAt: new Date().toISOString() })
     setConfirmAction(null)
-  }, [game])
+  }, [commitGame])
 
   // Cancel/suspend game
   const handleCancelGame = useCallback(async () => {
-    if (!game) return
-    const updatedGame: Game = { ...game, status: 'suspended', updatedAt: new Date().toISOString() }
-    await db.games.put(updatedGame)
-    setGame(updatedGame)
+    const current = gameRef.current
+    if (!current) return
+    await commitGame({ ...current, status: 'suspended', updatedAt: new Date().toISOString() })
     setConfirmAction(null)
-  }, [game])
+  }, [commitGame])
 
   // Delete game entirely
   const handleDeleteGame = useCallback(async () => {
@@ -99,19 +123,21 @@ export function GamePage() {
     navigate('/games')
   }, [game, navigate])
 
-  // Position change (defensive swap)
+  // Position change (defensive swap) — no event recorded
   const handlePositionChange = useCallback(async (updatedGame: Game) => {
-    await db.games.put(updatedGame)
-    setGame(updatedGame)
-  }, [])
+    await commitGame(updatedGame)
+  }, [commitGame])
 
   // Resume a suspended game
   const handleResumeGame = useCallback(async () => {
-    if (!game) return
-    const updatedGame: Game = { ...game, status: game.events.length > 0 ? 'in_progress' : 'setup', updatedAt: new Date().toISOString() }
-    await db.games.put(updatedGame)
-    setGame(updatedGame)
-  }, [game])
+    const current = gameRef.current
+    if (!current) return
+    await commitGame({
+      ...current,
+      status: current.events.length > 0 ? 'in_progress' : 'setup',
+      updatedAt: new Date().toISOString(),
+    })
+  }, [commitGame])
 
   if (!game) {
     return (
@@ -281,7 +307,7 @@ export function GamePage() {
               )}
               isAway={showLineup === 'away'}
               onGameUpdate={handlePositionChange}
-              onEvent={handleEvent}
+              onGameUpdateWithEvent={handleGameUpdateWithEvent}
             />
           )}
 
