@@ -27,6 +27,9 @@ export type InningHalfType = 'top' | 'bottom';
 /** Base identifiers */
 export type Base = 'first' | 'second' | 'third' | 'home';
 
+/** A base a runner can stand on — 'home' is scored, not occupied */
+export type OccupiableBase = Exclude<Base, 'home'>;
+
 /** Pitch result for pitch-by-pitch tracking */
 export type PitchResult =
   | 'ball'

@@ -1,6 +1,7 @@
 import type { BaseState } from '../models/common';
 import type { DerivedGameState, Game, GameRules } from '../models/game';
 import type { PlayEvent, Pitch } from '../models/play';
+import type { Substitution } from '../models/lineup';
 import { EMPTY_BASES } from '../models/common';
 
 /**
@@ -98,6 +99,15 @@ function applyEvent(state: DerivedGameState, event: PlayEvent, game: Game): void
   // Pickoff: successful = runner out
   if (event.type === 'pickoff_attempt' && event.successful) {
     // Outs already counted via getOutsFromEvent
+  }
+
+  // A pinch runner takes over the base their predecessor occupied, so any run,
+  // steal, or advance from here on is credited to the incoming player.
+  if (event.type === 'substitution' && event.subType === 'pinch_runner') {
+    const base = event.replacedRunnerBase;
+    if (base && state.bases[base] === event.outPlayerId) {
+      state.bases[base] = event.inPlayerId;
+    }
   }
 
   // Apply base state from runner movements
@@ -274,4 +284,52 @@ function countRunnersOnBase(bases: BaseState): number {
 export function undoLastEvent(game: Game): PlayEvent[] {
   if (game.events.length === 0) return [];
   return game.events.slice(0, -1);
+}
+
+/**
+ * Undo the last event, including any lineup change it carried.
+ *
+ * Substitutions live on `game.awayLineup`/`homeLineup` rather than being
+ * derived from the event log, so dropping the event alone would leave the
+ * roster change behind and desync the two.
+ */
+export function undoLastEventWithLineup(game: Game): Game {
+  if (game.events.length === 0) return game;
+  const undone = game.events[game.events.length - 1];
+  const next: Game = { ...game, events: game.events.slice(0, -1) };
+
+  if (undone.type === 'substitution') {
+    // The team can't be read off `halfInning` — a pitching change belongs to
+    // the fielding team, a pinch hitter to the batting team. Find the lineup
+    // that actually holds the matching substitution instead.
+    const matches = (s: Substitution) =>
+      s.orderSlot === undone.orderSlot &&
+      s.inPlayerId === undone.inPlayerId &&
+      s.outPlayerId === undone.outPlayerId;
+
+    for (const lineupKey of ['awayLineup', 'homeLineup'] as const) {
+      const lineup = next[lineupKey];
+      // Last match wins if the same slot was subbed more than once
+      const idx = findLastIndex(lineup.substitutions, matches);
+      if (idx >= 0) {
+        next[lineupKey] = {
+          ...lineup,
+          substitutions: [
+            ...lineup.substitutions.slice(0, idx),
+            ...lineup.substitutions.slice(idx + 1),
+          ],
+        };
+        break;
+      }
+    }
+  }
+
+  return next;
+}
+
+function findLastIndex<T>(arr: T[], pred: (item: T) => boolean): number {
+  for (let i = arr.length - 1; i >= 0; i--) {
+    if (pred(arr[i])) return i;
+  }
+  return -1;
 }

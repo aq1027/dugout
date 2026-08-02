@@ -4,6 +4,7 @@
   --tap-target: 44px;
   --color-error: #ef4444;
   --color-warning: #f59e0b;
+  --color-success: #16a34a;
   --color-primary: #2563eb;
   --color-primary-dim: #1d4ed8;
 }
@@ -20,6 +21,7 @@
   --color-primary: #2563eb;
   --color-primary-dim: #1d4ed8;
   --color-primary-text: #ffffff;
+  --color-success: #16a34a;
 }
 
 /* ─── Dark theme ───────────────────────────────── */
@@ -33,6 +35,7 @@
   --color-primary: #60a5fa;
   --color-primary-dim: #3b82f6;
   --color-primary-text: #0f172a;
+  --color-success: #22c55e;
 }
 
 *,
@@ -112,5 +115,6 @@ button:disabled {
     --color-surface: #1a1a1a;
     --color-text: #fff;
     --color-primary: #60a5fa;
+    --color-success: #00c853;
   }
 }

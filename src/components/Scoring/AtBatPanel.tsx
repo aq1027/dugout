@@ -285,6 +285,12 @@ export function AtBatPanel({ game, state, players, onEvent, onCountChange, onPit
     setNotationPositions(prev => [...prev, pos]);
   }, []);
 
+  // Pop the last tap. Positions repeat legitimately (1-3-1 rundown), so the
+  // buttons must not toggle — this is the only way to correct a mis-tap.
+  const handleNotationBackspace = useCallback(() => {
+    setNotationPositions(prev => prev.slice(0, -1));
+  }, []);
+
   // ─── Runner destination ─────────────────────
   const handleRunnerDest = useCallback((runnerId: Id, dest: Base | 'out') => {
     setRunners(prev => prev.map(r =>
@@ -514,20 +520,55 @@ export function AtBatPanel({ game, state, players, onEvent, onCountChange, onPit
 
     return (
       <div className="runner-panel">
+        <div className="runner-panel-header">
+          <span className="outcome-section-label">Move Runners</span>
+          <span className={`outs-pill${inningOver ? ' inning-over' : ''}`}>
+            <span className="outs-dots">
+              {[0, 1, 2].map(i => (
+                <span key={i} className={`outs-dot${i < Math.min(totalOuts, 3) ? ' filled' : ''}`} />
+              ))}
+            </span>
+            {inningOver ? '3 OUTS' : `${totalOuts} OUT${totalOuts === 1 ? '' : 'S'}`}
+          </span>
+        </div>
+
         {showNotation && (
           <div className="notation-builder">
             <div className="notation-display">{notation || 'Tap positions for fielding notation'}</div>
             <div className="position-grid">
-              {([1, 2, 3, 4, 5, 6, 7, 8, 9] as PositionNumber[]).map(pos => (
-                <button
-                  key={pos}
-                  className={`position-btn${notationPositions.includes(pos) ? ' selected' : ''}`}
-                  onClick={() => handleNotationPosition(pos)}
-                >
-                  {POSITION_LABELS[pos]} ({pos})
-                </button>
-              ))}
-              <button className="position-btn" onClick={() => setNotationPositions([])}>Clear</button>
+              {([1, 2, 3, 4, 5, 6, 7, 8, 9] as PositionNumber[]).map(pos => {
+                // Every tap index for this position — a rundown like 1-3-1 repeats one
+                const order = notationPositions
+                  .map((p, idx) => (p === pos ? idx + 1 : null))
+                  .filter((n): n is number => n !== null);
+                return (
+                  <button
+                    key={pos}
+                    className={`position-btn${order.length > 0 ? ' selected' : ''}`}
+                    onClick={() => handleNotationPosition(pos)}
+                  >
+                    {order.length > 0 && (
+                      <span className="position-btn-order">{order.join(',')}</span>
+                    )}
+                    {POSITION_LABELS[pos]} ({pos})
+                  </button>
+                );
+              })}
+              <button
+                className="position-btn"
+                onClick={handleNotationBackspace}
+                disabled={notationPositions.length === 0}
+                aria-label="Undo last position tap"
+              >
+                ⌫
+              </button>
+              <button
+                className="position-btn"
+                onClick={() => setNotationPositions([])}
+                disabled={notationPositions.length === 0}
+              >
+                Clear
+              </button>
             </div>
             {outcome?.kind === 'out' && (
               <div style={{ display: 'flex', gap: 6 }}>
@@ -589,7 +630,6 @@ export function AtBatPanel({ game, state, players, onEvent, onCountChange, onPit
           </div>
         )}
 
-        <span className="outcome-section-label">Move Runners</span>
         {runners.map(r => {
           const possibleDests = getDestinations(r.from);
           const isBatterLocked = r.from === 'batter' && sacrifice != null;
@@ -602,7 +642,15 @@ export function AtBatPanel({ game, state, players, onEvent, onCountChange, onPit
                 {possibleDests.map(dest => (
                   <button
                     key={dest}
-                    className={`runner-dest-btn${r.to === dest ? (dest === 'out' ? ' out-selected' : ' selected') : ''}`}
+                    className={`runner-dest-btn${
+                      r.to === dest
+                        ? dest === 'out'
+                          ? ' out-selected'
+                          : dest === 'home'
+                            ? ' home-selected'
+                            : ' selected'
+                        : ''
+                    }`}
                     onClick={() => handleRunnerDest(r.runnerId, dest)}
                     disabled={isBatterLocked}
                   >
@@ -642,15 +690,12 @@ export function AtBatPanel({ game, state, players, onEvent, onCountChange, onPit
           </div>
         )}
 
+        {/* Outs status lives in the panel header (.outs-pill) — keeping it out of
+            the action bar stops it squeezing "Record Play" on narrow screens. */}
         <div className="action-bar">
           <button onClick={() => { setPhase('outcome'); setRunners([]); setNotationPositions([]); setSacrifice(undefined); setHitError(null); }}>
             ← Back
           </button>
-          {inningOver && (
-            <span style={{ fontSize: '0.85em', color: 'var(--color-warning, #b58900)' }}>
-              Inning over — remaining runners stranded
-            </span>
-          )}
           <button className="primary" disabled={!allResolved} onClick={handleSubmitPlay}>
             Record Play ✓
           </button>

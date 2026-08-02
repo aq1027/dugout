@@ -431,6 +431,10 @@
   border-color: var(--color-primary-dim);
 }
 
+.outcome-btn:active {
+  transform: scale(0.96);
+}
+
 .outcome-btn.selected {
   background-color: var(--color-primary-dim);
   color: var(--color-primary-text);
@@ -473,11 +477,38 @@
 }
 
 .position-btn {
+  position: relative;
   padding: 10px 4px;
   font-size: 14px;
   font-weight: 700;
   text-align: center;
   touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.position-btn.selected {
+  background-color: var(--color-primary-dim);
+  color: var(--color-primary-text);
+  border-color: var(--color-primary);
+  font-weight: 800;
+}
+
+.position-btn:active {
+  transform: scale(0.94);
+  background-color: var(--color-primary);
+  color: var(--color-primary-text);
+}
+
+/* Tap-order badges — shows 6-4-3 sequence on the buttons themselves */
+.position-btn-order {
+  position: absolute;
+  top: 2px;
+  right: 3px;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: -0.5px;
+  opacity: 0.85;
 }
 
 /* ─── Runner resolution ──────────────────────────── */
@@ -519,6 +550,12 @@
   font-weight: 600;
   min-height: 32px;
   min-width: 32px;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.runner-dest-btn:active {
+  transform: scale(0.94);
 }
 
 .runner-dest-btn.selected {
@@ -528,6 +565,12 @@
 
 .runner-dest-btn.out-selected {
   background-color: var(--color-error);
+  color: white;
+}
+
+/* Scored runs green, mirroring OUT in red */
+.runner-dest-btn.home-selected {
+  background-color: var(--color-success);
   color: white;
 }
 
@@ -552,8 +595,55 @@
   border-top: 1px solid var(--color-border);
 }
 
+/* Buttons own the full row — never let a sibling squeeze the primary action */
 .action-bar button {
-  flex: 1;
+  flex: 1 1 0;
+  min-width: 96px;
+}
+
+/* ─── Outs indicator (runner panel header) ───────── */
+.runner-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.outs-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-border);
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+.outs-pill.inning-over {
+  background-color: var(--color-error);
+  border-color: var(--color-error);
+  color: #fff;
+}
+
+.outs-dots {
+  display: inline-flex;
+  gap: 3px;
+}
+
+.outs-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  border: 1.5px solid currentColor;
+}
+
+.outs-dot.filled {
+  background-color: currentColor;
 }
 
 /* ─── Game event log ─────────────────────────────── */
@@ -880,12 +970,28 @@
 }
 
 .lineup-sub-btn {
-  font-size: 14px;
-  min-height: 28px;
-  min-width: 28px;
-  padding: 2px 6px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  min-height: 30px;
+  min-width: 46px;
+  padding: 2px 8px;
   border-radius: var(--radius);
   line-height: 1;
+  color: var(--color-primary);
+  border: 1px solid var(--color-border);
+  background-color: var(--color-surface);
+  touch-action: manipulation;
+}
+
+.lineup-sub-btn:active {
+  transform: scale(0.94);
+}
+
+.lineup-sub-btn.active {
+  background-color: var(--color-primary-dim);
+  border-color: var(--color-primary);
+  color: var(--color-primary-text);
 }
 
 /* Sub picker dropdown */
@@ -940,6 +1046,24 @@
   padding: 3px 6px 3px 32px;
   font-size: 12px;
   color: var(--color-text-muted);
+}
+
+/* The last sub in a slot's chain is the player actually in the game */
+.lineup-sub-history.active-sub {
+  color: var(--color-text);
+  font-weight: 600;
+}
+
+.lineup-sub-history.current-batter {
+  background-color: var(--color-primary-dim);
+  color: var(--color-primary-text);
+  border-radius: var(--radius);
+}
+
+/* A replaced starter is struck through and dimmed */
+.lineup-panel-row.replaced .lineup-player-name {
+  text-decoration: line-through;
+  opacity: 0.55;
 }
 
 .sub-prefix {

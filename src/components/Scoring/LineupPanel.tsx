@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import type { Id, PositionNumber } from '../../models/common';
+import type { Id, OccupiableBase, PositionNumber } from '../../models/common';
 import { POSITION_LABELS } from '../../models/common';
 import type { Game, DerivedGameState } from '../../models/game';
 import type { Player } from '../../models/player';
@@ -14,8 +14,10 @@ interface LineupPanelProps {
   players: Map<Id, Player>;
   teamPlayers: Player[];
   isAway: boolean;
+  /** Game-only mutation (position change / swap) — records no event */
   onGameUpdate: (updatedGame: Game) => void;
-  onEvent: (event: PlayEvent) => void;
+  /** Game mutation + its event, persisted as a single write */
+  onGameUpdateWithEvent: (updatedGame: Game, event: PlayEvent) => void;
 }
 
 /** Get current lineup accounting for all substitutions */
@@ -45,6 +47,14 @@ function getSlotHistory(game: Game, isAway: boolean): Map<number, Substitution[]
   return map;
 }
 
+/** Which base a player currently occupies, if any */
+function findRunnerBase(bases: DerivedGameState['bases'], playerId: Id): OccupiableBase | undefined {
+  if (bases.first === playerId) return 'first';
+  if (bases.second === playerId) return 'second';
+  if (bases.third === playerId) return 'third';
+  return undefined;
+}
+
 function getCurrentPitcher(game: Game, isAway: boolean): Id | null {
   const lineup = isAway ? game.awayLineup : game.homeLineup;
   const pitchingSub = [...lineup.substitutions]
@@ -60,11 +70,12 @@ type SubAction = {
   type?: Substitution['type'];
 };
 
-export function LineupPanel({ game, state, players, teamPlayers, isAway, onGameUpdate, onEvent }: LineupPanelProps) {
+export function LineupPanel({ game, state, players, teamPlayers, isAway, onGameUpdate, onGameUpdateWithEvent }: LineupPanelProps) {
   const [action, setAction] = useState<SubAction | null>(null);
 
   const teamName = isAway ? game.awayTeamName : game.homeTeamName;
   const slots = getCurrentSlots(game, isAway);
+  const startingOrder = (isAway ? game.awayLineup : game.homeLineup).startingOrder;
   const slotHistory = getSlotHistory(game, isAway);
   const currentPitcherId = getCurrentPitcher(game, isAway);
 
@@ -124,8 +135,13 @@ export function LineupPanel({ game, state, players, teamPlayers, isAway, onGameU
     };
     lineup.substitutions = [...lineup.substitutions, sub];
     const updatedGame = { ...game, [lineupKey]: lineup, updatedAt: new Date().toISOString() };
-    onGameUpdate(updatedGame);
-    // Emit SubstitutionEvent into the play log
+
+    // A pinch runner takes over the base their predecessor occupied, so the
+    // event has to carry it — otherwise replay leaves the old runner on base.
+    const replacedRunnerBase = subType === 'pinch_runner'
+      ? findRunnerBase(state.bases, slot.playerId)
+      : undefined;
+
     const subEvent: PlayEvent = {
       id: generateId(),
       timestamp: new Date().toISOString(),
@@ -141,10 +157,13 @@ export function LineupPanel({ game, state, players, teamPlayers, isAway, onGameU
       inPlayerId: newPlayerId,
       position: pos,
       orderSlot: slotIndex,
+      ...(replacedRunnerBase ? { replacedRunnerBase } : {}),
     };
-    onEvent(subEvent);
+    // Single write — a separate event write would be built from the
+    // pre-substitution game and silently revert the lineup change.
+    onGameUpdateWithEvent(updatedGame, subEvent);
     setAction(null);
-  }, [game, isAway, slots, state, onGameUpdate, onEvent]);
+  }, [game, isAway, slots, state, onGameUpdateWithEvent]);
 
   // ─── Position change (same player) ─────────
   const handlePosChange = useCallback((slotIndex: number, newPos: PositionNumber) => {
@@ -200,8 +219,6 @@ export function LineupPanel({ game, state, players, teamPlayers, isAway, onGameU
     };
     lineup.substitutions = [...lineup.substitutions, sub];
     const updatedGame = { ...game, [lineupKey]: lineup, updatedAt: new Date().toISOString() };
-    onGameUpdate(updatedGame);
-    // Also emit a SubstitutionEvent into the play log
     const subEvent: PlayEvent = {
       id: generateId(),
       timestamp: new Date().toISOString(),
@@ -218,9 +235,10 @@ export function LineupPanel({ game, state, players, teamPlayers, isAway, onGameU
       position: 1,
       orderSlot: pitcherSlotIdx,
     };
-    onEvent(subEvent);
+    // Single write — see commitSub
+    onGameUpdateWithEvent(updatedGame, subEvent);
     setAction(null);
-  }, [game, isAway, slots, state, onGameUpdate, onEvent]);
+  }, [game, isAway, slots, state, onGameUpdateWithEvent]);
 
   // Position duplicate check
   const posCounts = new Map<PositionNumber, number>();
@@ -243,10 +261,11 @@ export function LineupPanel({ game, state, players, teamPlayers, isAway, onGameU
         <span className="lineup-player-name">
           {currentPitcherId ? pName(currentPitcherId) : '—'}
         </span>
-        <button className="lineup-sub-btn" onClick={() =>
-          isActive(-1) ? closeAction() : setAction({ slot: -1, step: 'pick-player', type: 'pitching_change' })
-        }>
-          {isActive(-1) ? '✕' : '↻'}
+        <button
+          className={`lineup-sub-btn${isActive(-1) ? ' active' : ''}`}
+          onClick={() => isActive(-1) ? closeAction() : setAction({ slot: -1, step: 'pick-player', type: 'pitching_change' })}
+        >
+          {isActive(-1) ? '✕' : 'SUB P'}
         </button>
       </div>
       {isActive(-1) && (
@@ -280,11 +299,16 @@ export function LineupPanel({ game, state, players, teamPlayers, isAway, onGameU
           const hasDupePos = (posCounts.get(slot.position) ?? 0) > 1;
           const history = slotHistory.get(i) ?? [];
 
+          // Scorecard convention: the starter keeps the numbered line and each
+          // sub is listed beneath it. The last name in the chain is active.
+          const starter = startingOrder[i];
+          const hasSubs = history.length > 0;
+
           return (
-            <div key={`${slot.playerId}-${i}`} className="lineup-slot-group">
-              <div className={`lineup-panel-row${isCurrentBatter ? ' current-batter' : ''}`}>
+            <div key={`${starter?.playerId ?? slot.playerId}-${i}`} className="lineup-slot-group">
+              <div className={`lineup-panel-row${isCurrentBatter && !hasSubs ? ' current-batter' : ''}${hasSubs ? ' replaced' : ''}`}>
                 <span className="lineup-order">{i + 1}</span>
-                <span className="lineup-player-name">{pName(slot.playerId)}</span>
+                <span className="lineup-player-name">{pName(starter?.playerId ?? slot.playerId)}</span>
                 <select
                   className={`lineup-pos-select${hasDupePos ? ' pos-error' : ''}`}
                   value={slot.position}
@@ -294,16 +318,24 @@ export function LineupPanel({ game, state, players, teamPlayers, isAway, onGameU
                     <option key={pos} value={pos}>{POSITION_LABELS[pos]}</option>
                   ))}
                 </select>
-                <button className="lineup-sub-btn" onClick={() =>
-                  isActive(i) ? closeAction() : setAction({ slot: i, step: 'pick-type' })
-                }>
-                  {isActive(i) ? '✕' : '↻'}
+                <button
+                  className={`lineup-sub-btn${isActive(i) ? ' active' : ''}`}
+                  onClick={() => isActive(i) ? closeAction() : setAction({ slot: i, step: 'pick-type' })}
+                >
+                  {isActive(i) ? '✕' : 'SUB'}
                 </button>
               </div>
 
               {/* Substitution history for this slot (indented, MLB-style) */}
               {history.map((sub, si) => (
-                <div key={si} className="lineup-sub-history">
+                <div
+                  key={si}
+                  className={`lineup-sub-history${
+                    si === history.length - 1
+                      ? ` active-sub${isCurrentBatter ? ' current-batter' : ''}`
+                      : ''
+                  }`}
+                >
                   <span className="sub-prefix">{String.fromCharCode(97 + si)}-</span>
                   <span className="sub-player">{pName(sub.inPlayerId)}</span>
                   <span className="sub-type-badge">{subTypeLabel(sub.type)}-{POSITION_LABELS[sub.position]}</span>

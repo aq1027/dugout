@@ -1,4 +1,4 @@
-import type { Id, Base, PitchResult, PositionNumber } from './common';
+import type { Id, Base, OccupiableBase, PitchResult, PositionNumber } from './common';
 
 // ─── Pitch ────────────────────────────────────────────────
 export interface Pitch {
@@ -145,6 +145,11 @@ export interface SubstitutionEvent extends BasePlayEvent {
   inPlayerId: Id;
   position: PositionNumber;
   orderSlot: number;
+  /**
+   * For pinch runners: the base the outgoing runner occupied. Replay swaps the
+   * incoming player onto it, so the run/SB is credited to the right player.
+   */
+  replacedRunnerBase?: OccupiableBase;
 }
 
 export interface DroppedThirdStrikeEvent extends BasePlayEvent {

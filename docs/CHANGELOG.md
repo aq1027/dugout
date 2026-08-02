@@ -1,5 +1,27 @@
 # Changelog
 
+## v0.1.3
+
+Bug-fix release addressing feedback from live-game use of v0.1.2.
+
+### Substitutions
+- **Fixed: substitutions were silently discarded.** `LineupPanel` wrote the game twice per substitution — once with the roster change, then again to append the event. The second write was built from a stale `game` captured before the change, so it reverted the lineup while keeping the log entry. Substitutions now commit as a single atomic write via `onGameUpdateWithEvent`.
+- **Scorecard-style lineup display:** the starter keeps the numbered line (struck through once replaced) and each substitution is listed indented beneath it, with the active player highlighted. Previously the incoming player was rendered on both lines and the starter disappeared.
+- **Pinch runners take over the base:** `SubstitutionEvent` gained `replacedRunnerBase`, and replay now swaps the incoming player onto that base so runs and steals credit the right player.
+- **Undo reverts the lineup:** `undoLastEventWithLineup()` removes the substitution from the lineup alongside its event, keeping the two in sync. It locates the correct team by searching both lineups, since a pitching change belongs to the fielding team while a pinch hitter belongs to the batting team.
+- **`SUB` / `SUB P` buttons** replace the `↻` refresh-style icon, which read as "reload" rather than "substitute."
+
+### Scoring UI
+- **Fixed: fielding position taps had no visual feedback.** The `.selected` class was applied correctly in JSX but **no matching CSS rule existed** — so tapping a position highlighted nothing. Affected all three position grids (fielding notation, error-by-position, error-on-hit).
+- **Tap-order badges** on selected position buttons show the sequence (`6-4-3`), including repeats for rundowns like `1-3-1`.
+- **Backspace (`⌫`)** undoes a single position tap; previously only a full Clear was available.
+- **"Scored" is now green** (`--color-success`, added across light/dark/high-contrast themes), mirroring the red OUT button.
+- **Action bar no longer cramped:** the "Inning over — remaining runners stranded" text shared a flex row with the buttons and squeezed "Record Play" on phones. Replaced with a compact outs pill (`● ● ○`) in the panel header.
+- **Immediate tap feedback:** `:active` states and `touch-action: manipulation` on position, runner-destination, and outcome buttons.
+
+### Tests
+- New `scenarios-substitutions.test.ts` — 14 tests covering commit, persistence, pitching changes, pinch-runner base swap, and undo. Includes an explicit regression test for the stale-write failure mode.
+
 ## v0.1.2
 
 ### Scoring Logic Overhaul
