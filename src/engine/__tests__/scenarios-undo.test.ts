@@ -5,7 +5,9 @@
  * including count, bases, outs, score, and half-inning.
  */
 import { describe, it, expect } from 'vitest';
-import { deriveGameState } from '../gameEngine';
+import { deriveGameState, countFromPitches, pitchesToRestoreAfterUndo } from '../gameEngine';
+import type { Pitch } from '../../models/play';
+import type { PitchResult } from '../../models/common';
 import {
   makeGame, A,
   single, triple, homeRun,
@@ -150,5 +152,82 @@ describe('Scenario: Undo', () => {
     // Undo first single
     const undo3 = deriveUndone(events, 3);
     expect(undo3.bases.first).toBeNull();
+  });
+});
+
+// ─── Count restoration (§14.1) ─────────────────
+//
+// Replaying the trimmed log can't bring the count back: a finished at-bat's
+// pitches live on the event that undo removes. pitchesToRestoreAfterUndo()
+// recovers them from that event before it is dropped.
+
+const seq = (...results: PitchResult[]): Pitch[] => results.map(result => ({ result }));
+
+/** The count the batter is handed back when the game's last event is undone */
+function countAfterUndo(events: PlayEvent[]) {
+  const pitches = pitchesToRestoreAfterUndo(makeGame({ events }));
+  return pitches && countFromPitches(pitches);
+}
+
+describe('Scenario: Undo restores the count', () => {
+  it('strikeout on a 1-2 count → back to 1-2', () => {
+    const k = {
+      ...strikeout(A[0]),
+      pitchSequence: seq('strike_looking', 'ball', 'strike_swinging', 'strike_swinging'),
+    } as PlayEvent;
+
+    expect(countAfterUndo([k])).toEqual({ balls: 1, strikes: 2 });
+  });
+
+  it('walk on a 3-1 count → back to 3-1', () => {
+    const bb = {
+      ...walk(A[0]),
+      pitchSequence: seq('ball', 'strike_looking', 'ball', 'ball', 'ball'),
+    } as PlayEvent;
+
+    expect(countAfterUndo([bb])).toEqual({ balls: 3, strikes: 1 });
+  });
+
+  it('ball in play on a 2-1 count → back to 2-1 with the same pitches', () => {
+    const hit = {
+      ...single(A[0]),
+      pitchSequence: seq('ball', 'strike_swinging', 'ball', 'in_play'),
+    } as PlayEvent;
+    const pitches = pitchesToRestoreAfterUndo(makeGame({ events: [hit] }));
+
+    expect(pitches).toEqual(seq('ball', 'strike_swinging', 'ball'));
+    expect(countAfterUndo([hit])).toEqual({ balls: 2, strikes: 1 });
+  });
+
+  it('fouls with two strikes do not add a third', () => {
+    const k = {
+      ...strikeout(A[0]),
+      pitchSequence: seq('foul', 'foul', 'foul', 'foul', 'strike_swinging'),
+    } as PlayEvent;
+
+    expect(countAfterUndo([k])).toEqual({ balls: 0, strikes: 2 });
+  });
+
+  it('first-pitch ball in play → back to 0-0', () => {
+    expect(countAfterUndo([single(A[0])])).toEqual({ balls: 0, strikes: 0 });
+  });
+
+  it('restores from the last event only', () => {
+    const first = { ...strikeout(A[0]), pitchSequence: seq('ball', 'ball', 'strike_looking', 'strike_looking', 'strike_looking') } as PlayEvent;
+    const second = { ...walk(A[1]), pitchSequence: seq('ball', 'ball', 'ball', 'ball') } as PlayEvent;
+
+    expect(countAfterUndo([first, second])).toEqual({ balls: 3, strikes: 0 });
+  });
+
+  it('undoing a between-at-bat event leaves the at-bat in progress alone', () => {
+    const events: PlayEvent[] = [
+      single(A[0]),
+      wildPitch([mv(A[0], 'first', 'second')]),
+    ];
+    expect(pitchesToRestoreAfterUndo(makeGame({ events }))).toBeNull();
+  });
+
+  it('nothing to undo → nothing to restore', () => {
+    expect(pitchesToRestoreAfterUndo(makeGame({ events: [] }))).toBeNull();
   });
 });

@@ -47,7 +47,10 @@ export interface GameRules {
   dpFlex: boolean;
   /** Mercy rule: lead required to end game early (null = no mercy) */
   mercyRule: number | null;
-  /** Mercy inning: the inning after which mercy applies */
+  /**
+   * Mercy inning: the game can end once this many innings are complete — or
+   * during the bottom of this inning if the home team holds the lead.
+   */
   mercyInning: number | null;
   /** Extra-inning auto-runner on 2B */
   extraInningAutoRunner: boolean;

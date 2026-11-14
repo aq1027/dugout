@@ -450,7 +450,7 @@ describe('mercy rule', () => {
     events.push(strikeout(2, 'bottom', 1, 'p5'));
     events.push(strikeout(2, 'bottom', 2, 'p6'));
 
-    // Top 3: Mercy should trigger at start of top 3 since mercy inning is 3
+    // Top 3: lead is only 9, one short of the 10-run margin
     events.push(strikeout(3, 'top', 0, 'p7'));
 
     const game = makeGame({
@@ -472,9 +472,8 @@ describe('mercy rule', () => {
 
     expect(state.awayScore).toBe(9);
     expect(state.homeScore).toBe(0);
-    // Mercy rule check happens at inning >= mercyInning, top of inning, 0 outs
-    // After bottom 2 ends, we're at top of 3 with 0 outs. lead=9 >= 10? No.
-    // Actually 9 < 10, so mercy doesn't trigger. Let's adjust expectations:
+    // Below the margin, so the game goes on. Mercy timing itself is covered
+    // in scenarios-game-end.test.ts.
     expect(state.isGameOver).toBe(false);
   });
 });

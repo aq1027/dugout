@@ -1,5 +1,39 @@
 # Changelog
 
+## v0.1.4
+
+Correctness release. None of these were reported from a game — they were found by reading the engine against the v0.1.2 rules audit. Several were rules v0.1.2 documented and marked done without a working implementation behind them.
+
+### Scoring rules
+- **Fixed: every double play zeroed the RBI.** The force-DP check had a clause that was always true, so tag double plays (line drive caught, runner doubled off) lost RBI they are entitled to. Force vs. tag is now worked out from the base state (MLB 9.04(b)(1)).
+- **Fixed: runs scoring on an error always credited an RBI.** The default is now 0, or 1 for a runner on third with fewer than two outs (MLB 9.04(a)(3), 9.04(b)(2)). Since this is a judgment call, error plays show an **RBI Credited** selector whenever a run scores.
+- **Fixed: multi-out plays lost their out type.** Any play with two outs was relabelled `double_play`, so a sac fly with a runner thrown out at the plate was recorded as a double play. The scorer's choice (ground / fly / line / popup) is now kept; the game log reads "fly out, double play".
+- **3rd-out force rule enforced by the engine.** A run marked on a play whose 3rd out is a force out no longer scores, and the runner counts as left on base. Previously this held only because the scoring panel happened not to produce such a play. The panel now says when it drops a run, and warns on an inning-ending ground-ball double play, where only the scorer knows whether the run beat a tag.
+- **Extra outs on a strikeout or caught stealing are counted** (strike-'em-out-throw-'em-out, both runners caught on a double steal). These always counted as exactly one out.
+
+### Game end
+- **Fixed: a home-team mercy-rule win was never detected.** The check only ran at the top of an inning with no outs. The home team's lead now ends the game immediately in the bottom half; the away team's lead ends it once the home team has batted.
+- **Fixed: the mercy rule triggered an inning early.** "After 5" fired at the start of the 5th. It now waits for five complete innings (4½ if the home team leads).
+- **Undo works after the game ends.** A walk-off or mercy finish used to hide Undo, leaving no way to take back a mis-recorded final play. Undo and End stay available until the game is marked Final.
+
+### Undo
+- **Fixed: undo did not restore the count.** v0.1.2 advertised this, but the code path that would restore it could never run, so undoing a strikeout on 1-2 brought the batter back at 0-0. The count before the final pitch is now recovered from the undone event.
+
+### Stored games
+No migration and no change to the saved format. Two things can differ when an existing game is reopened:
+- A game where a run was recorded on a force-out 3rd out now shows that run removed.
+- A mercy-rule game may end at a different point, per the fixes above.
+
+RBI totals and out types on plays already recorded are unchanged — those fixes apply to plays scored from now on.
+
+### Internals
+- Event construction moved out of `AtBatPanel` into a pure `buildPlayEvent()` (`src/engine/playBuilder.ts`), with force/tag classification in `src/engine/forcePlay.ts`. This is what made the bugs above testable: the suite previously replayed hand-built, already-correct events and never exercised the code that builds them.
+- Removed the unused `computePitchingStats` stub and a dead pickoff branch in `BetweenABPanel`.
+- `docs/common-scenarios.md` §19 corrected where it claimed rules were implemented that were not.
+
+### Tests
+- **234 tests** across 13 files (up from 184). New: `playBuilder.test.ts` (event construction), `scenarios-game-end.test.ts` (mercy rule, 3rd-out guard, out counting), and count-restoration cases in `scenarios-undo.test.ts`.
+
 ## v0.1.3
 
 Bug-fix release addressing feedback from live-game use of v0.1.2.

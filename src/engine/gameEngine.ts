@@ -1,8 +1,9 @@
 import type { BaseState } from '../models/common';
 import type { DerivedGameState, Game, GameRules } from '../models/game';
-import type { PlayEvent, Pitch } from '../models/play';
+import type { PlayEvent, Pitch, RunnerMovement } from '../models/play';
 import type { Substitution } from '../models/lineup';
 import { EMPTY_BASES } from '../models/common';
+import { thirdOutIsForce } from './forcePlay';
 
 /**
  * Derives the full game state by replaying all events.
@@ -51,9 +52,19 @@ function applyEvent(state: DerivedGameState, event: PlayEvent, game: Game): void
   while (state.awayLineScore.length < state.inning) state.awayLineScore.push(0);
   while (state.homeLineScore.length < state.inning) state.homeLineScore.push(0);
 
-  // Count runs from runner movements
-  const runsScored = event.runnerMovements.filter(m => m.to === 'home').length;
   const isAwayBatting = state.halfInning === 'top';
+  const outsFromEvent = getOutsFromEvent(event);
+
+  // MLB 5.08(a): no run scores on a play where the 3rd out is a force out,
+  // even if a runner crossed the plate first. The scoring panel already drops
+  // those runs, but an imported or hand-built event may still carry them — the
+  // runner is treated as stranded instead.
+  const runsWiped = state.outs + outsFromEvent >= 3 && thirdOutIsForce(event, state.bases);
+  const movements = runsWiped
+    ? event.runnerMovements.filter(m => m.to !== 'home')
+    : event.runnerMovements;
+
+  const runsScored = movements.filter(m => m.to === 'home').length;
 
   if (isAwayBatting) {
     state.awayScore += runsScored;
@@ -63,8 +74,6 @@ function applyEvent(state: DerivedGameState, event: PlayEvent, game: Game): void
     state.homeLineScore[state.inning - 1] += runsScored;
   }
 
-  // Apply outs
-  const outsFromEvent = getOutsFromEvent(event);
   state.outs += outsFromEvent;
 
   // Track hits
@@ -96,11 +105,6 @@ function applyEvent(state: DerivedGameState, event: PlayEvent, game: Game): void
     else state.homeTimeouts++;
   }
 
-  // Pickoff: successful = runner out
-  if (event.type === 'pickoff_attempt' && event.successful) {
-    // Outs already counted via getOutsFromEvent
-  }
-
   // A pinch runner takes over the base their predecessor occupied, so any run,
   // steal, or advance from here on is credited to the incoming player.
   if (event.type === 'substitution' && event.subType === 'pinch_runner') {
@@ -111,7 +115,7 @@ function applyEvent(state: DerivedGameState, event: PlayEvent, game: Game): void
   }
 
   // Apply base state from runner movements
-  applyRunnerMovements(state.bases, event);
+  applyRunnerMovements(state.bases, movements);
 
   // Check if this event ends the at-bat and advances the batter
   if (isAtBatComplete(event)) {
@@ -123,7 +127,9 @@ function applyEvent(state: DerivedGameState, event: PlayEvent, game: Game): void
       state.homeBatterIndex = (state.homeBatterIndex + 1) % getBattingOrderSize(rules, game.homeLineup.startingOrder.length);
     }
   } else if (event.pitchSequence && event.pitchSequence.length > 0) {
-    // Non-completing event with pitches (future: WP/PB during AB) — preserve sequence
+    // Non-completing event carrying pitches. Nothing produces one yet — it is
+    // reserved for a WP/PB-during-at-bat flow. Until then the in-progress count
+    // lives in AtBatPanel, and undo restores it via pitchesToRestoreAfterUndo().
     state.currentAtBatPitches = [...event.pitchSequence];
     state.count = countFromPitches(event.pitchSequence);
   }
@@ -147,15 +153,22 @@ function applyEvent(state: DerivedGameState, event: PlayEvent, game: Game): void
     state.isGameOver = true;
   }
 
-  // Check mercy rule
-  if (rules.mercyRule !== null && rules.mercyInning !== null) {
-    if (state.inning >= rules.mercyInning) {
-      const lead = Math.abs(state.homeScore - state.awayScore);
-      if (lead >= rules.mercyRule && state.outs === 0 && state.halfInning === 'top') {
-        state.isGameOver = true;
-      }
-    }
+  // Mercy rule, home team ahead: the game ends the moment the lead is reached
+  // in the bottom half — or as soon as the top half ends, since the home team
+  // need not bat. An away lead is checked when the inning completes (see
+  // advanceHalfInning), because the home team is owed its turn.
+  if (
+    state.halfInning === 'bottom' &&
+    mercyApplies(state.inning, rules) &&
+    state.homeScore - state.awayScore >= rules.mercyRule!
+  ) {
+    state.isGameOver = true;
   }
+}
+
+/** Has the game reached the inning from which the mercy rule can end it? */
+function mercyApplies(inning: number, rules: GameRules): boolean {
+  return rules.mercyRule !== null && rules.mercyInning !== null && inning >= rules.mercyInning;
 }
 
 /** Advance from top → bottom, or bottom → next inning top */
@@ -174,7 +187,9 @@ function advanceHalfInning(state: DerivedGameState, rules: GameRules): void {
     }
   } else {
     // End of full inning
-    if (state.inning >= rules.innings && state.awayScore !== state.homeScore) {
+    const lead = Math.abs(state.awayScore - state.homeScore);
+    const mercy = mercyApplies(state.inning, rules) && lead >= rules.mercyRule!;
+    if (mercy || (state.inning >= rules.innings && lead > 0)) {
       state.isGameOver = true;
     } else {
       state.inning++;
@@ -184,7 +199,7 @@ function advanceHalfInning(state: DerivedGameState, rules: GameRules): void {
 }
 
 /** Derive balls/strikes count from a pitch sequence */
-function countFromPitches(pitches: Pitch[]): { balls: number; strikes: number } {
+export function countFromPitches(pitches: Pitch[]): { balls: number; strikes: number } {
   let balls = 0;
   let strikes = 0;
   for (const p of pitches) {
@@ -200,23 +215,33 @@ function countFromPitches(pitches: Pitch[]): { balls: number; strikes: number } 
   return { balls, strikes };
 }
 
-/** Calculate outs produced by an event */
-function getOutsFromEvent(event: PlayEvent): number {
+/**
+ * Outs produced by an event.
+ *
+ * Strikeouts and caught-stealings carry an implicit out, but any further
+ * runner marked out on the same event counts too — a strike-'em-out,
+ * throw-'em-out double play, or both runners caught on a double steal.
+ */
+export function getOutsFromEvent(event: PlayEvent): number {
+  const outMovements = event.runnerMovements.filter(m => m.to === 'out');
+  const runnerOuts = outMovements.filter(m => m.from !== 'batter').length;
+
   switch (event.type) {
     case 'out':
       return event.outsRecorded;
     case 'strikeout':
-      return 1;
+      // The batter's out is implicit — a movement that also lists it must not
+      // count twice
+      return 1 + runnerOuts;
+    case 'dropped_third_strike':
+      return (event.safe ? 0 : 1) + runnerOuts;
     case 'caught_stealing':
-      return 1;
+      // The caught runner is already among the movements
+      return Math.max(1, outMovements.length);
     case 'pickoff_attempt':
       return event.successful ? 1 : 0;
-    case 'dropped_third_strike':
-      return event.safe ? 0 : 1;
-    default: {
-      // Count runner movements that result in outs
-      return event.runnerMovements.filter(m => m.to === 'out').length;
-    }
+    default:
+      return outMovements.length;
   }
 }
 
@@ -248,16 +273,16 @@ function isAtBatComplete(event: PlayEvent): boolean {
 }
 
 /** Apply runner movements to the base state */
-function applyRunnerMovements(bases: BaseState, event: PlayEvent): void {
+function applyRunnerMovements(bases: BaseState, movements: RunnerMovement[]): void {
   // First, clear bases for runners who moved
-  for (const movement of event.runnerMovements) {
+  for (const movement of movements) {
     if (movement.from === 'first') bases.first = null;
     if (movement.from === 'second') bases.second = null;
     if (movement.from === 'third') bases.third = null;
   }
 
   // Then, place runners at their destinations
-  for (const movement of event.runnerMovements) {
+  for (const movement of movements) {
     if (movement.to === 'first') bases.first = movement.runnerId;
     if (movement.to === 'second') bases.second = movement.runnerId;
     if (movement.to === 'third') bases.third = movement.runnerId;
@@ -325,6 +350,23 @@ export function undoLastEventWithLineup(game: Game): Game {
   }
 
   return next;
+}
+
+/**
+ * The pitches to put back in front of the batter when the last event is undone.
+ *
+ * Replay alone can't recover them: a completed at-bat's pitches live on the
+ * event being removed, so once it is gone the derived count is 0-0. Dropping
+ * the final pitch (strike three, ball four, the HBP, or the ball put in play)
+ * returns the batter to the count they faced before it.
+ *
+ * Returns null when the last event didn't end an at-bat — the at-bat in
+ * progress is untouched by undoing a steal or a substitution.
+ */
+export function pitchesToRestoreAfterUndo(game: Game): Pitch[] | null {
+  const undone = game.events[game.events.length - 1];
+  if (!undone || !isAtBatComplete(undone)) return null;
+  return undone.pitchSequence.slice(0, -1);
 }
 
 function findLastIndex<T>(arr: T[], pred: (item: T) => boolean): number {

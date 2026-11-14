@@ -69,8 +69,14 @@ function describeEvent(e: PlayEvent, players: Map<Id, Player>): string {
       const errorSuffix = e.error ? ` (E${e.error.fielderPosition})` : '';
       return `${batter} — ${e.hitType.replace('_', ' ')}${errorSuffix}${runnerSuffix(e, players)}`;
     }
-    case 'out':
-      return `${batter} — ${e.outType.replace('_', ' ')} (${e.notation})${runnerSuffix(e, players)}`;
+    case 'out': {
+      // Multi-out plays are read off outsRecorded; outType keeps the scorer's
+      // classification. Events from before v0.1.4 stored the DP/TP as the type.
+      const kind = e.outType.replace('_', ' ');
+      const legacyMulti = e.outType === 'double_play' || e.outType === 'triple_play';
+      const multi = legacyMulti ? '' : e.outsRecorded >= 3 ? ', triple play' : e.outsRecorded === 2 ? ', double play' : '';
+      return `${batter} — ${kind}${multi} (${e.notation})${runnerSuffix(e, players)}`;
+    }
     case 'strikeout':
       return e.looking ? `${batter} — ꓘ` : `${batter} — K`;
     case 'walk':

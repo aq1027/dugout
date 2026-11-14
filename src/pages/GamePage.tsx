@@ -5,8 +5,8 @@ import type { Game } from '../models/game'
 import type { Player } from '../models/player'
 import { displayPlayerName } from '../models/player'
 import type { Id, Count } from '../models/common'
-import type { PlayEvent } from '../models/play'
-import { deriveGameState, undoLastEventWithLineup } from '../engine/gameEngine'
+import type { PlayEvent, Pitch } from '../models/play'
+import { deriveGameState, undoLastEventWithLineup, pitchesToRestoreAfterUndo } from '../engine/gameEngine'
 import { Scoreboard } from '../components/Scoring/Scoreboard'
 import { GameStateDisplay } from '../components/Scoring/GameStateDisplay'
 import { LineScore } from '../components/Scoring/LineScore'
@@ -31,6 +31,8 @@ export function GamePage() {
   const [showLineup, setShowLineup] = useState<'away' | 'home' | null>(null)
   const [confirmAction, setConfirmAction] = useState<'end' | 'cancel' | 'delete' | null>(null)
   const [livePitchCount, setLivePitchCount] = useState(0)
+  // Pitches handed back to the at-bat panel when an undo returns a batter to the plate
+  const [restoredPitches, setRestoredPitches] = useState<Pitch[] | null>(null)
 
   // Keep the ref in sync after every commit, so handlers read current state
   useEffect(() => {
@@ -67,6 +69,11 @@ export function GamePage() {
   const handleEvent = useCallback(async (event: PlayEvent) => {
     const current = gameRef.current
     if (!current) return
+    // Replay ignores anything after the final out, so recording it would only
+    // store a play that never shows up. The panels are hidden once the game is
+    // over; this covers a tap that lands in the same tick.
+    if (deriveGameState(current).isGameOver) return
+    setRestoredPitches(null)
     await commitGame({
       ...current,
       events: [...current.events, event],
@@ -79,6 +86,7 @@ export function GamePage() {
   // write. Splitting these caused the substitution bug: the event write was
   // built from a pre-substitution `game` and reverted the roster change.
   const handleGameUpdateWithEvent = useCallback(async (updatedGame: Game, event: PlayEvent) => {
+    setRestoredPitches(null)
     await commitGame({
       ...updatedGame,
       events: [...updatedGame.events, event],
@@ -87,11 +95,17 @@ export function GamePage() {
     })
   }, [commitGame])
 
-  // Undo last event — also reverts the lineup if the event was a substitution
+  // Undo last event — also reverts the lineup if the event was a substitution.
+  // Stays available after the engine calls the game (walk-off, mercy rule) so a
+  // mis-recorded final play can be taken back; only marking it Final locks it.
   const handleUndo = useCallback(async () => {
     const current = gameRef.current
     if (!current) return
     const reverted = undoLastEventWithLineup(current)
+    // Undoing a completed at-bat puts its batter back up with the count they
+    // had before the final pitch. For any other event this is null: the panel
+    // only reads it on mount, so an at-bat in progress keeps its own pitches.
+    setRestoredPitches(pitchesToRestoreAfterUndo(current))
     await commitGame({
       ...reverted,
       status: reverted.events.length === 0 ? 'setup' : 'in_progress',
@@ -198,11 +212,11 @@ export function GamePage() {
       <div className="scoring-top-bar">
         <Link to="/games" style={{ fontSize: 14 }}>← Games</Link>
         <div className="bar-actions">
-          {!state.isGameOver && game.status !== 'final' && game.status !== 'suspended' && (
+          {game.status !== 'final' && game.status !== 'suspended' && (
             <>
               <UndoButton canUndo={game.events.length > 0} onUndo={handleUndo} />
               <button onClick={() => setConfirmAction('end')}>End</button>
-              <button onClick={() => setConfirmAction('cancel')}>Cancel</button>
+              {!state.isGameOver && <button onClick={() => setConfirmAction('cancel')}>Cancel</button>}
             </>
           )}
           <button onClick={() => { setShowLog(!showLog); if (!showLog) setShowLineScore(false); }}>
@@ -260,6 +274,11 @@ export function GamePage() {
           <div className="final-score">
             {game.awayTeamName} {state.awayScore} — {game.homeTeamName} {state.homeScore}
           </div>
+          {game.status !== 'final' && (
+            <p style={{ fontSize: 13, color: 'var(--color-text-muted)', margin: '8px 0 0' }}>
+              Game over — no more plays can be recorded. Undo the last play if it was entered by mistake, or End to lock the score.
+            </p>
+          )}
           <div style={{ display: 'flex', gap: 8, justifyContent: 'center', marginTop: 12 }}>
             <button onClick={() => setConfirmAction('delete')} style={{ fontSize: 13, color: 'var(--color-error)' }}>
               Delete Game
@@ -326,6 +345,7 @@ export function GamePage() {
             state={state}
             players={players}
             onEvent={handleEvent}
+            restoredPitches={restoredPitches}
             onCountChange={setLiveCount}
             onPitchCountChange={setLivePitchCount}
           />
