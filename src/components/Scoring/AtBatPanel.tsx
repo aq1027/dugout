@@ -8,22 +8,14 @@ import { displayPlayerName } from '../../models/player';
 import { generateId } from '../../utils/id';
 import { getDefaultRunnerStates } from '../../engine/autoAdvance';
 import type { AutoAdvanceOutcome } from '../../engine/autoAdvance';
+import { countFromPitches } from '../../engine/gameEngine';
+import { analyzePlay, buildPlayEvent } from '../../engine/playBuilder';
+import type { PlayInput, PlayOutcome, ResolvedRunner } from '../../engine/playBuilder';
 
 // ─── Types ──────────────────────────────────────
 type ScoringPhase = 'pitch' | 'outcome' | 'runners';
-
-type OutcomeType =
-  | { kind: 'hit'; hitType: 'single' | 'double' | 'triple' | 'home_run' }
-  | { kind: 'out'; outType: 'ground_out' | 'fly_out' | 'line_out' | 'popup' }
-  | { kind: 'error'; position: PositionNumber }
-  | { kind: 'fielders_choice' }
-  | { kind: 'dropped_third_strike' };
-
-interface RunnerState {
-  runnerId: Id;
-  from: Base | 'batter';
-  to: Base | 'out' | null;
-}
+type OutcomeType = PlayOutcome;
+type RunnerState = ResolvedRunner;
 
 // ─── Props ──────────────────────────────────────
 interface AtBatPanelProps {
@@ -31,6 +23,11 @@ interface AtBatPanelProps {
   state: DerivedGameState;
   players: Map<Id, Player>;
   onEvent: (event: PlayEvent) => void;
+  /**
+   * Pitches to resume with after an undo put this batter back at the plate.
+   * Read once on mount — GamePage remounts the panel whenever the batter changes.
+   */
+  restoredPitches?: Pitch[] | null;
   onCountChange?: (count: { balls: number; strikes: number }) => void;
   onPitchCountChange?: (count: number) => void;
 }
@@ -64,24 +61,24 @@ function baseLabel(b: Base | 'batter'): string {
   return b;
 }
 
-export function AtBatPanel({ game, state, players, onEvent, onCountChange, onPitchCountChange }: AtBatPanelProps) {
+export function AtBatPanel({ game, state, players, onEvent, restoredPitches, onCountChange, onPitchCountChange }: AtBatPanelProps) {
   const [phase, setPhase] = useState<ScoringPhase>('pitch');
-  const [pitches, setPitches] = useState<Pitch[]>(() => state.currentAtBatPitches ?? []);
-  const [count, setCount] = useState(() => state.count ?? { balls: 0, strikes: 0 });
+  const [pitches, setPitches] = useState<Pitch[]>(() => restoredPitches ?? state.currentAtBatPitches ?? []);
+  const [count, setCount] = useState(() => countFromPitches(restoredPitches ?? state.currentAtBatPitches ?? []));
   const [outcome, setOutcome] = useState<OutcomeType | null>(null);
   const [notationPositions, setNotationPositions] = useState<PositionNumber[]>([]);
   const [runners, setRunners] = useState<RunnerState[]>([]);
   const [sacrifice, setSacrifice] = useState<'fly' | 'bunt' | undefined>(undefined);
   const [hitError, setHitError] = useState<{ fielderPosition: PositionNumber } | null>(null);
+  // Scorer's RBI call on an error play; null = use the rule-based default
+  const [rbiOverride, setRbiOverride] = useState<number | null>(null);
 
   const batter = getCurrentBatter(game, state);
 
   // On mount (key change), sync parent with initial count (may be restored from undo)
   useEffect(() => {
-    const initialCount = state.count ?? { balls: 0, strikes: 0 };
-    const initialPitches = state.currentAtBatPitches ?? [];
-    onCountChange?.(initialCount);
-    onPitchCountChange?.(initialPitches.length);
+    onCountChange?.(count);
+    onPitchCountChange?.(pitches.length);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const resetAtBat = useCallback(() => {
@@ -93,6 +90,7 @@ export function AtBatPanel({ game, state, players, onEvent, onCountChange, onPit
     setRunners([]);
     setSacrifice(undefined);
     setHitError(null);
+    setRbiOverride(null);
     onCountChange?.({ balls: 0, strikes: 0 });
     onPitchCountChange?.(0);
   }, [onCountChange, onPitchCountChange]);
@@ -104,20 +102,9 @@ export function AtBatPanel({ game, state, players, onEvent, onCountChange, onPit
     setPitches(newPitches);
     onPitchCountChange?.(newPitches.length);
 
-    // Recalculate count from scratch
-    let balls = 0;
-    let strikes = 0;
-    for (const p of newPitches) {
-      if (p.result === 'ball' || p.result === 'pitch_clock_ball') {
-        balls++;
-      } else if (p.result === 'strike_swinging' || p.result === 'strike_looking' || p.result === 'pitch_clock_strike') {
-        strikes++;
-      } else if (p.result === 'foul' && strikes < 2) {
-        strikes++;
-      }
-    }
-    setCount({ balls, strikes });
-    onCountChange?.({ balls, strikes });
+    const newCount = countFromPitches(newPitches);
+    setCount(newCount);
+    onCountChange?.(newCount);
   }, [pitches, onCountChange, onPitchCountChange]);
 
   // ─── Build runner states for resolution ─────
@@ -246,6 +233,7 @@ export function AtBatPanel({ game, state, players, onEvent, onCountChange, onPit
   // ─── Outcome selection ──────────────────────
   const handleOutcome = useCallback((o: OutcomeType) => {
     setOutcome(o);
+    setRbiOverride(null);
     if (o.kind === 'hit' && o.hitType === 'home_run') {
       // HR — auto-resolve all runners to home, dispatch immediately
       const rs = buildRunnerStates(o);
@@ -299,113 +287,28 @@ export function AtBatPanel({ game, state, players, onEvent, onCountChange, onPit
   }, []);
 
   // ─── Submit play ────────────────────────────
-  const handleSubmitPlay = useCallback(() => {
+  // The rules that turn the scorer's taps into an event (RBI, out type, whether
+  // a run counts) live in engine/playBuilder so they can be unit-tested.
+  const playInput = (o: OutcomeType): PlayInput => ({
+    outcome: o,
+    runners,
+    state,
+    batterId: batter.playerId,
+    pitches,
+    notation,
+    sacrifice,
+    hitError,
+    rbiOverride,
+  });
+
+  const handleSubmitPlay = () => {
     if (!outcome) return;
-
-    // Validate all runners have destinations
-    // Filter out runners who stay put (to === from) — no movement needed
-    const activeRunners = runners.filter(r => r.to !== null && r.to !== r.from);
-    const mvs: RunnerMovement[] = activeRunners.map(r => ({
-      runnerId: r.runnerId,
-      from: r.from,
-      to: r.to!,
+    onEvent(buildPlayEvent(playInput(outcome), {
+      id: generateId(),
+      timestamp: new Date().toISOString(),
     }));
-
-    const rbi = mvs.filter(m => m.to === 'home').length;
-    const outsRecorded = mvs.filter(m => m.to === 'out').length;
-
-    // MLB 9.04(b)(1): No RBI on force double play
-    const isForceDP = outcome.kind === 'out' && outsRecorded >= 2 &&
-      (outcome.outType === 'ground_out' || outsRecorded >= 2);
-    const adjustedRbi = isForceDP ? 0 : rbi;
-
-    let event: PlayEvent;
-
-    switch (outcome.kind) {
-      case 'hit':
-        event = {
-          id: generateId(),
-          timestamp: new Date().toISOString(),
-          inning: state.inning,
-          halfInning: state.halfInning,
-          outsBefore: state.outs,
-          batterId: batter.playerId,
-          pitchSequence: pitches,
-          runnerMovements: mvs,
-          type: 'hit',
-          hitType: outcome.hitType,
-          rbi,
-          ...(hitError ? { error: hitError } : {}),
-        };
-        break;
-      case 'out':
-        event = {
-          id: generateId(),
-          timestamp: new Date().toISOString(),
-          inning: state.inning,
-          halfInning: state.halfInning,
-          outsBefore: state.outs,
-          batterId: batter.playerId,
-          pitchSequence: pitches,
-          runnerMovements: mvs,
-          type: 'out',
-          outType: outsRecorded >= 3 ? 'triple_play' : outsRecorded >= 2 ? 'double_play' : outcome.outType,
-          notation: notation || '?',
-          outsRecorded: Math.max(outsRecorded, 1),
-          sacrifice,
-          rbi: adjustedRbi,
-        };
-        break;
-      case 'error':
-        event = {
-          id: generateId(),
-          timestamp: new Date().toISOString(),
-          inning: state.inning,
-          halfInning: state.halfInning,
-          outsBefore: state.outs,
-          batterId: batter.playerId,
-          pitchSequence: pitches,
-          runnerMovements: mvs,
-          type: 'error',
-          fielderPosition: outcome.position,
-          baseReached: (mvs.find(m => m.from === 'batter')?.to as Base) ?? 'first',
-          rbi,
-        };
-        break;
-      case 'fielders_choice':
-        event = {
-          id: generateId(),
-          timestamp: new Date().toISOString(),
-          inning: state.inning,
-          halfInning: state.halfInning,
-          outsBefore: state.outs,
-          batterId: batter.playerId,
-          pitchSequence: pitches,
-          runnerMovements: mvs,
-          type: 'fielders_choice',
-          notation: notation || 'FC',
-          rbi,
-        };
-        break;
-      case 'dropped_third_strike':
-        event = {
-          id: generateId(),
-          timestamp: new Date().toISOString(),
-          inning: state.inning,
-          halfInning: state.halfInning,
-          outsBefore: state.outs,
-          batterId: batter.playerId,
-          pitchSequence: pitches,
-          runnerMovements: mvs,
-          type: 'dropped_third_strike',
-          safe: !mvs.some(m => m.from === 'batter' && m.to === 'out'),
-        };
-        break;
-    }
-
-    onEvent(event!);
     resetAtBat();
-  }, [outcome, runners, state, batter, pitches, notation, sacrifice, hitError, onEvent, resetAtBat]);
+  };
 
   // ─── Render: Batter info ────────────────────
   const renderBatterInfo = () => (
@@ -517,6 +420,7 @@ export function AtBatPanel({ game, state, players, onEvent, onCountChange, onPit
       : runners.every(r => r.to !== null);
 
     const showNotation = outcome?.kind === 'out' || outcome?.kind === 'fielders_choice';
+    const analysis = outcome ? analyzePlay(playInput(outcome)) : null;
 
     return (
       <div className="runner-panel">
@@ -662,11 +566,48 @@ export function AtBatPanel({ game, state, players, onEvent, onCountChange, onPit
           );
         })}
 
-        {/* GIDP RBI warning — MLB 9.04(b)(1) */}
-        {outcome?.kind === 'out' && outsMarked >= 2 && runners.some(r => r.to === 'home') && (
+        {/* 3rd out is a force — MLB 5.08(a) */}
+        {analysis && analysis.runsWiped > 0 && (
+          <div className="helper-hint warning">
+            No run scores — the 3rd out is a force out. {analysis.runsWiped === 1 ? 'That runner is' : 'Those runners are'} left on base.
+          </div>
+        )}
+        {analysis?.runDependsOnOutOrder && (
+          <div className="helper-hint warning">
+            If the force was the last out (e.g. 6-4-3), the run does not count — set that runner to Stay.
+            It scores only if the batter was retired first and the runner was then tagged.
+          </div>
+        )}
+
+        {/* GIDP RBI — MLB 9.04(b)(1) */}
+        {analysis?.isForceDP && analysis.runsScored > 0 && (
           <div className="helper-hint">
             No RBI is credited on a force double play, even if a run scores (MLB 9.04(b)).
           </div>
+        )}
+
+        {/* RBI on an error is the scorer's call — MLB 9.04(a)(3), 9.04(b)(2) */}
+        {outcome?.kind === 'error' && analysis && analysis.runsScored > 0 && (
+          <>
+            <div className="runner-row">
+              <span className="runner-from">RBI</span>
+              <span className="runner-name">Credited</span>
+              <div className="runner-destinations">
+                {Array.from({ length: analysis.runsScored + 1 }, (_, n) => (
+                  <button
+                    key={n}
+                    className={`runner-dest-btn${analysis.rbi === n ? ' selected' : ''}`}
+                    onClick={() => setRbiOverride(n)}
+                  >
+                    {n}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="helper-hint">
+              A run that scores on an error earns no RBI — unless a runner on 3B would have scored anyway with fewer than 2 outs.
+            </div>
+          </>
         )}
 
         {/* Error on play — only for hits */}
@@ -693,7 +634,7 @@ export function AtBatPanel({ game, state, players, onEvent, onCountChange, onPit
         {/* Outs status lives in the panel header (.outs-pill) — keeping it out of
             the action bar stops it squeezing "Record Play" on narrow screens. */}
         <div className="action-bar">
-          <button onClick={() => { setPhase('outcome'); setRunners([]); setNotationPositions([]); setSacrifice(undefined); setHitError(null); }}>
+          <button onClick={() => { setPhase('outcome'); setRunners([]); setNotationPositions([]); setSacrifice(undefined); setHitError(null); setRbiOverride(null); }}>
             ← Back
           </button>
           <button className="primary" disabled={!allResolved} onClick={handleSubmitPlay}>

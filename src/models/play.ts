@@ -67,10 +67,19 @@ export interface HitEvent extends BasePlayEvent {
 
 export interface OutEvent extends BasePlayEvent {
   type: 'out';
+  /**
+   * How the batter was retired — the scorer's classification of the batted
+   * ball. Whether the play was a double or triple play is a separate question,
+   * answered by `outsRecorded`.
+   *
+   * `double_play` / `triple_play` are legacy values: before v0.1.4 any
+   * multi-out play overwrote the scorer's choice with one of them. New events
+   * never use them; they remain so stored games still load.
+   */
   outType: 'ground_out' | 'fly_out' | 'line_out' | 'popup' | 'double_play' | 'triple_play';
   /** Fielding notation, e.g. "6-4-3" */
   notation: string;
-  /** How many outs recorded on this play */
+  /** How many outs recorded on this play (2 = double play, 3 = triple play) */
   outsRecorded: number;
   /** Sacrifice fly or bunt */
   sacrifice?: 'fly' | 'bunt';

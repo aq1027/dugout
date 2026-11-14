@@ -321,8 +321,9 @@ This is a judgment call. The app leaves RBI as user-editable on all FC and error
 | TP1 | 0 | 1B+2B | Line drive caught, both runners doubled off | 3 outs. Inning over. |
 
 **App behavior for multi-out plays:**
-- When the user marks 2+ runners as `out`, the app auto-detects double/triple play.
+- When the user marks 2+ runners as `out`, the play is a double/triple play. That is read from `outsRecorded` — `outType` keeps the scorer's classification (ground / fly / line / popup), so a sac fly with a runner thrown out is still a fly out.
 - `outsRecorded` on the OutEvent is set to the count of runners marked out.
+- **RBI (MLB 9.04(b)(1)):** a *force* double play — batter out before first plus a forced runner, or two forced runners, on a ground ball — credits no RBI. A *tag* double play (§6.2) keeps the RBI if another runner scores.
 - If `state.outs + outsRecorded >= 3`, inning is over — remaining runners are stranded (no destinations needed).
 
 ---
@@ -526,7 +527,7 @@ An RBI is credited on an error play when, **before two are out**, an error is ma
 | E-R3 | 2 | 3B | Batter hits ground ball, SS bobbles it, runner scores | **No** | With 2 outs, the batter would have been out → runner would NOT ordinarily score |
 | E-R4 | 0 | 1B | Error on throw to 1B, runner from 1B takes 3B | **No** | Runner from 1B does not "ordinarily" score on a ground ball |
 
-**App behavior:** The autoAdvance module defaults `rbi: 1` on error plays when a runner is on 3B with < 2 outs. Otherwise, `rbi: 0`.
+**App behavior:** `buildPlayEvent()` credits `rbi: 1` on an error play when the runner from 3B scores with < 2 outs, and `rbi: 0` otherwise (MLB 9.04(b)(2)). Because this is a scorer's judgment, the runner panel shows an **RBI Credited** selector on error plays whenever a run scores, pre-set to that default.
 
 ### 12.4 Wild Throw Error Rules (MLB 9.12)
 
@@ -604,11 +605,12 @@ This is one of the most critical rules for scoring accuracy.
 | IE6 | 2 | Runners 1B+3B | Tag play: 1B runner caught in rundown, tagged out | **Timing play** — ask user | If 3B crossed plate before tag: YES. If after: NO. |
 | IE7 | 2 | Runner 3B, batter reaches on error | Batter thrown out trying for 2B (tag, not force) | **Timing play** — ask user | Did 3B cross plate before the tag at 2B? |
 
-**App behavior:**
+**App behavior (v0.1.4):**
 - When `state.outs + outsRecorded >= 3`: inning is over.
-- If ALL outs on the play are force outs: no runs score. Auto-zero any runners marked `Home` that haven't already been scored (or warn the user).
-- If any out is a TAG play (non-force): **ask the user** if the run scored (timing play).
-- For v0.1.2: Simplify by asking "Did the run score before the out?" when the 3rd out is not a clear force out.
+- **3rd out is certainly a force** — the batter is the only out (IE1, IE2), or every out is a forced runner (IE3): no run scores. The scoring panel drops the run and says so; the engine applies the same guard on replay, so an imported or hand-built event can't score it either. The runner counts as left on base.
+- **Any out is a tag** (unforced runner, batter thrown out stretching a hit, runner doubled off a caught ball): timing play. The scorer marks the runner `Scored` or leaves them, and that is honored (IE6, IE7).
+- **Ground-ball double play ending the inning** (IE4, IE5): the app can't tell a 6-4-3 (force is the last out → no run) from a reverse-force 3-6 (batter out first, runner then *tagged* → timing play), because events don't record the order of the outs. Runners default to `Stay`. If the scorer marks one `Scored`, the app warns that the run only counts on a tag after the force was removed, and honors the choice.
+- "Forced" means forced at the time of the pitch — see `src/engine/forcePlay.ts`.
 
 ### 13.3 What the App Should Do
 
@@ -631,7 +633,11 @@ This is one of the most critical rules for scoring accuracy.
 | U5 | Undo a WP/PB | Runners return to previous bases. If WP had a pitch association, that pitch is removed from the sequence. |
 | U6 | Undo a substitution | Previous player restored to lineup slot. |
 
-**Implementation:** The app uses event sourcing. `undoLastEvent()` removes the last event and re-derives state via `deriveGameState()`. The derived state includes the correct count, bases, outs, etc. The `AtBatPanel` must initialize from the derived state (not a hardcoded 0-0).
+**Implementation:** The app uses event sourcing. Undo removes the last event and re-derives bases, outs, score and batter via `deriveGameState()`.
+
+The **count** is the exception: replay can't recover it. A finished at-bat's pitches are stored on the event that undo removes, so the re-derived count is always 0-0. `pitchesToRestoreAfterUndo()` reads them off that event before it is dropped — minus the final pitch (strike three, ball four, the HBP, or the ball put in play) — and `GamePage` hands them to `AtBatPanel` as `restoredPitches` (U1–U3).
+
+**Known gap (U4, U5):** pitches thrown in an at-bat that is still in progress exist only in the panel. Undoing a steal or wild pitch mid-at-bat keeps them (the panel isn't remounted), but if that event *ended the half-inning* — a caught stealing for the 3rd out — the interrupted batter comes back at 0-0. Fixing it needs between-at-bat events to carry the count, which is the WP/PB-during-at-bat work in §7.2.
 
 ### 14.2 What Must Be Preserved
 
@@ -834,8 +840,10 @@ This section tracks the app's compliance with MLB Official Scoring Rules (Rule 9
 | 9.13 + strikeout | Strikeout + WP both scored on dropped 3rd strike | §7.2 (WP-P4) |
 | Force chain | Walk/HBP force only continuous chain from 1B | §10, §11 |
 | Balk | All runners advance one base, deterministic | §9a |
-| 3rd-out force rule | No run scores if 3rd out is a force out | §13.1–§13.2 |
+| 3rd-out force rule | No run scores if 3rd out is a force out — enforced in the scoring panel **and** the engine since v0.1.4 (was UI-only). Order-dependent ground-ball DPs are warned, not enforced. | §13.1–§13.2 |
 | Timing play | Run CAN score on 3rd out if tag (not force) and runner crossed plate first | §13.2 (IE6, IE7) |
+| 9.04(b)(1) | No RBI on a force / reverse-force double play; RBI kept on a tag double play | §6 |
+| 9.04(a)(3), 9.04(b)(2) | No RBI on a run scoring by error, except runner on 3B with < 2 outs; scorer can override | §12.3 |
 | Dropped 3rd strike | Batter can run when 1B empty OR 2 outs | §15 (DK1–DK4) |
 
 ### 🔧 Rules Fixed in v0.1.2
@@ -844,18 +852,33 @@ This section tracks the app's compliance with MLB Official Scoring Rules (Rule 9
 |------|-----|-----|
 | 9.02(a)(1) | Sac fly/bunt were counted as at-bats, inflating AB and deflating AVG/SLG | `statsEngine.ts`: check `event.sacrifice` before incrementing AB. Added `sf`/`sh` counters. |
 | 9.02 OBP | OBP denominator was `AB + BB + HBP` — missing SF | Fixed to `AB + BB + HBP + SF` |
-| 9.04(b)(1) | No validation preventing RBI on force double play | `AtBatPanel.tsx`: zeroes RBI on force DP. Added UI hint warning. `autoAdvance.ts`: `computeDefaultRbi()` returns 0 for force DPs. |
-| 9.04(a)(3) | No guidance for RBI on error plays with runner on 3B | Documented in §12.3. Auto-advance defaults RBI=1 when R3B + <2 outs + error. |
+| 9.04(b)(1) | No validation preventing RBI on force double play | `AtBatPanel.tsx`: zeroes RBI on force DP. Added UI hint warning. `autoAdvance.ts`: `computeDefaultRbi()` returns 0 for force DPs. ⚠️ *Shipped broken — zeroed RBI on every double play, tag DPs included. Corrected in v0.1.4.* |
+| 9.04(a)(3) | No guidance for RBI on error plays with runner on 3B | Documented in §12.3. ⚠️ *The default was documented but never implemented — every run on an error credited an RBI. Implemented in v0.1.4.* |
 | 9.04(c) | No guidance for RBI judgment (fielder holds ball / throws wrong base) | Documented in §5.3. |
 | 9.06(f) | Walk-off hit not limited to bases needed to score winning run | Documented in §1.5. Engine enforcement deferred. |
 | 9.06(b)–(c) | No guidance for hit value reduction (FC throw, oversliding) | Documented in §1.6. |
 | 9.12 | Error rules were sparse (only E1–E3, E-H1–H2) | Expanded §12 with: §12.3 RBI on errors, §12.4 wild throw rules, §12.5 muffed foul, §12.6 DP throw errors, §12.7 mental mistakes, §12.8 steal throw errors. |
 | 9.13 Comment | WP/PB not charged if defense makes out before runners advance — not documented | Documented in §7.4. |
 
+### 🔧 Rules Fixed in v0.1.4
+
+v0.1.2 documented these rules and marked them done, but the code did not implement them. Found by reading the engine against this tracker.
+
+| Rule | Bug | Fix |
+|------|-----|-----|
+| 9.04(b)(1) | A dead clause made the force-DP check true for *every* double play, zeroing RBI on tag DPs | `forcePlay.ts`: `isForceDoublePlay()` classifies force vs. tag from the base state. |
+| 9.04(b)(2), 9.04(a)(3) | Error plays credited an RBI for every run | `playBuilder.ts`: default 0, 1 for a runner on 3B with < 2 outs, scorer override in the UI. |
+| 5.08(a) | 3rd-out force rule held only because the UI happened not to generate the run; the engine counted any `home` movement | `gameEngine.ts`: `applyEvent` drops runs when `thirdOutIsForce()`. |
+| — | Any 2+ out play overwrote `outType` with `double_play`, so a sac fly with a runner thrown out was typed as a DP | `outType` keeps the scorer's choice; multiplicity comes from `outsRecorded`. |
+| Mercy rule | Checked only at the top of an inning with 0 outs: a home-team mercy win was never detected, and "after N" triggered an inning early | Home lead ends it at once in the bottom half; away lead ends it when the inning completes. |
+| — | Strikeout / caught-stealing events always counted exactly 1 out | Extra runners marked out on the same event now count. |
+
 ### ⚠️ Known Gaps (Deferred — v0.2.0+)
 
 | Rule | Gap | Blocker |
 |------|-----|---------|
+| 5.08(a) | Reverse-force double play ending the inning: whether the run counts depends on the order of the outs | Events don't record out order. Scorer decides, with a warning. See §13.2. |
+| §14.1 (U4) | Count of an at-bat interrupted by an inning-ending caught stealing is not restored on undo | In-progress pitches aren't stored on between-at-bat events. See §14. |
 | 9.16 | Earned/unearned run reconstruction | Requires per-pitcher runner tracking + inning reconstruction without errors/PB |
 | 9.14–9.15 | W/L pitcher and save determination | Requires pitcher-of-record state variable + lead-change detection |
 | 9.16(g)–(h) | Inherited runner charging for relief pitchers | Requires per-runner `responsiblePitcherId` tracking. Depends on 9.16. |

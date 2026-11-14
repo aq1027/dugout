@@ -2,6 +2,7 @@ import type { PlayEvent } from '../models/play';
 import type { Id } from '../models/common';
 import type { BaseState } from '../models/common';
 import { EMPTY_BASES } from '../models/common';
+import { getOutsFromEvent } from './gameEngine';
 
 // ─── Batting stats ────────────────────────────────────────
 
@@ -28,22 +29,7 @@ export interface BattingStats {
   ops: number;
 }
 
-// ─── Pitching stats ───────────────────────────────────────
-
-export interface PitchingStats {
-  playerId: Id;
-  ip: number;      // innings pitched (as a decimal, e.g. 6.1 = 6 and 1/3)
-  h: number;
-  r: number;
-  er: number;
-  bb: number;
-  so: number;
-  pitchCount: number;
-  era: number;
-  whip: number;
-}
-
-// ─── Computation (Phase 5 — stubs for now) ────────────────
+// ─── Computation ──────────────────────────────────────────
 
 export function computeBattingStats(events: PlayEvent[], playerId: Id): BattingStats {
   const stats: BattingStats = {
@@ -140,21 +126,6 @@ function isAtBatEvent(event: PlayEvent): boolean {
     default:
       return false;
   }
-}
-
-/**
- * Placeholder for pitching stats — will be fully implemented in Phase 5.
- * Needs pitcher tracking per at-bat which requires lineup + substitution context.
- */
-export function computePitchingStats(
-  _events: PlayEvent[],
-  playerId: Id,
-): PitchingStats {
-  return {
-    playerId,
-    ip: 0, h: 0, r: 0, er: 0, bb: 0, so: 0, pitchCount: 0,
-    era: 0, whip: 0,
-  };
 }
 
 // ─── Situational stats ───────────────────────────────────
@@ -271,15 +242,4 @@ function applyMovements(bases: BaseState, event: PlayEvent): void {
 
 function countOnBase(bases: BaseState): number {
   return (bases.first ? 1 : 0) + (bases.second ? 1 : 0) + (bases.third ? 1 : 0);
-}
-
-function getOutsFromEvent(event: PlayEvent): number {
-  switch (event.type) {
-    case 'out': return event.outsRecorded;
-    case 'strikeout': return 1;
-    case 'caught_stealing': return 1;
-    case 'pickoff_attempt': return event.successful ? 1 : 0;
-    case 'dropped_third_strike': return event.safe ? 0 : 1;
-    default: return event.runnerMovements.filter(m => m.to === 'out').length;
-  }
 }

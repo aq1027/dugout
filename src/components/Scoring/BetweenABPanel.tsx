@@ -145,13 +145,8 @@ export function BetweenABPanel({ game, state, players, onEvent }: BetweenABPanel
       reset();
     }
 
-    if (action === 'pickoff' && selectedRunner && pickoffBase) {
-      const runner = runnersOnBase.find(r => r.id === selectedRunner);
-      if (!runner) return;
-      // We'll ask user if successful — for now default to unsuccessful
-      // The UI will handle success/failure selection
-    }
-  }, [action, selectedRunner, selectedBase, pickoffBase, wpPbRunners, state, runnersOnBase, game, onEvent, reset]);
+    // Pickoffs are recorded by handlePickoff, which needs the safe/out result
+  }, [action, selectedRunner, selectedBase, wpPbRunners, state, runnersOnBase, game, onEvent, reset]);
 
   const handlePickoff = useCallback((successful: boolean) => {
     if (!selectedRunner || !pickoffBase) return;
